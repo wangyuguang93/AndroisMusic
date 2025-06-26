@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- USB音频设备过滤配置 -->
+    <usb-device vendor-id="0x0000" product-id="0x0000" class="0x01" subclass="0x01" protocol="0x00" />
+    <usb-device vendor-id="0x0000" product-id="0x0000" class="0x01" subclass="0x02" protocol="0x00" />
+    <!-- 通用USB音频设备支持 -->
+    <usb-device class="0x01" subclass="0x00" protocol="0x00" />
+    <usb-device class="0x01" subclass="0x03" protocol="0x00" />
+</resources>

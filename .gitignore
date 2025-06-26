@@ -1,0 +1,15 @@
+# Android Studio 项目
+*.iml
+.gradle
+/local.properties
+/.idea/*
+!/.idea/codeStyles
+!/.idea/runConfigurations
+/build
+/captures
+*.log
+*.hprof
+# Gradle
+build/
+!src/**/build/  # 如果需要保留某些构建产物则添加例外
+
