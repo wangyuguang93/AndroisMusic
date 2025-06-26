@@ -4,8 +4,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
@@ -28,8 +30,11 @@ import androidx.media3.datasource.DefaultDataSourceFactory
 import androidx.media3.datasource.DataSource
 import androidx.media3.session.legacy.MediaSessionCompat
 import androidx.media3.session.legacy.PlaybackStateCompat
+import com.example.musicplayer.R
 import com.example.musicplayer.model.Song
 import com.example.musicplayer.receiver.UsbDeviceReceiver
+import com.example.musicplayer.ui.MainActivity
+
 // Remove deprecated import
 // androidx.media3.session.SessionPlaybackState
 // import android.media.AudioManager // Commented out if not directly used after ExoPlayer setup
@@ -43,7 +48,7 @@ import com.example.musicplayer.receiver.UsbDeviceReceiver
 // 定义音乐播放器服务类，继承自 Service 类
 @UnstableApi
 class MusicPlayerService : Service() {
-    public  val guang = 1;
+
     private val TAG = "MusicPlayerService"
     // 通知渠道 ID
     private val CHANNEL_ID = "music_player_channel"
@@ -54,6 +59,9 @@ class MusicPlayerService : Service() {
         val LOOP_MODE_NONE = 0
         const val LOOP_MODE_ALL = 1
         const val LOOP_MODE_ONE = 2
+        const val ACTION_PREVIOUS = "com.example.musicplayer.PREVIOUS"
+        const val ACTION_PLAY_PAUSE = "com.example.musicplayer.PLAY_PAUSE"
+        const val ACTION_NEXT = "com.example.musicplayer.NEXT"
     }
     val LOOP_MODE_ONE = 2
     var loopMode = LOOP_MODE_NONE
@@ -72,6 +80,11 @@ class MusicPlayerService : Service() {
     private var currentSong: Song? = null
     // 歌曲列表
     private var songList: List<Song> = emptyList()
+
+    // 公共方法，用于获取歌曲列表
+    fun getSongList(): List<Song> {
+        return songList
+    }
     // 当前在歌曲列表中的位置，重命名以提高清晰度
     private var currentPositionInList = 0 // Renamed for clarity from currentPosition
     // USB 管理器实例
@@ -93,7 +106,7 @@ class MusicPlayerService : Service() {
     }
 
     // **MODIFICATION: Initialize exoPlayer and MediaSession in onCreate**
-    @SuppressLint("RestrictedApi", "ForegroundServiceType")
+    @SuppressLint("RestrictedApi", "ForegroundServiceType", "UnspecifiedRegisterReceiverFlag")
     @OptIn(UnstableApi::class) override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service onCreate: Initializing player and media session.")
@@ -104,11 +117,17 @@ class MusicPlayerService : Service() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
-        // 添加错误监听
+        // 添加错误监听和播放完成监听
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 Log.e(TAG, "ExoPlayer 播放错误: ", error)
                 // 可以在这里添加更多错误处理逻辑，如提示用户等
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    skipToNext()
+                }
             }
         })
 
@@ -166,6 +185,22 @@ class MusicPlayerService : Service() {
         // filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         // registerReceiver(usbReceiver, filter)
 
+        // 注册广播接收器
+        val filter = IntentFilter().apply {
+            addAction(ACTION_PREVIOUS)
+            addAction(ACTION_PLAY_PAUSE)
+            addAction(ACTION_NEXT)
+        }
+        registerReceiver(object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    ACTION_PREVIOUS -> skipToPrevious()
+                    ACTION_PLAY_PAUSE -> togglePlayPause()
+                    ACTION_NEXT -> skipToNext()
+                }
+            }
+        }, filter, if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Context.RECEIVER_NOT_EXPORTED else 0)
+
         Log.d(TAG, "Service fully initialized.")
     }
 
@@ -174,7 +209,7 @@ class MusicPlayerService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Music Player",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             )
             val service = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             service.createNotificationChannel(channel)
@@ -184,27 +219,57 @@ class MusicPlayerService : Service() {
     @SuppressLint("RestrictedApi")
     private fun createNotification(): android.app.Notification {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Music Player")
-            .setContentText("Playing music")
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentIntent(mediaSessionCompat.controller.sessionActivity)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentTitle(getCurrentSong()?.title ?: "Playing music")
+         //   .setContentText(getCurrentSong()?.title ?: "Playing music")
+            .setSmallIcon(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) R.mipmap.ic_notification_white else R.mipmap.ic_notification)
+            .setContentIntent(getPendingIntent())
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setOngoing(true)
 
         // 添加播放控制操作
-        builder.addAction(android.R.drawable.ic_media_previous, "Previous",
-            mediaSessionCompat.controller.sessionActivity
-        )
-        builder.addAction(android.R.drawable.ic_media_play, "Play",
-            mediaSessionCompat.controller.sessionActivity
-        )
-        builder.addAction(android.R.drawable.ic_media_next, "Next",
-            mediaSessionCompat.controller.sessionActivity
-        )
+        builder.addAction(R.drawable.ic_skip_previous, "上一首", getPendingIntent(ACTION_PREVIOUS))
+        builder.addAction(if (exoPlayer.isPlaying) R.drawable.ic_pause else R.drawable.ic_play, if (exoPlayer.isPlaying) "暂停" else "播放", getPendingIntent(ACTION_PLAY_PAUSE))
+        builder.addAction(R.drawable.ic_skip_next, "下一首", getPendingIntent(ACTION_NEXT))
 
         return builder.build()
     }
 
+    private fun updateNotification() {
+        val notification = createNotification()
+        startForeground(NOTIFICATION_ID, notification)
+    }
+
+    private fun getPendingIntent(action: String? = null): PendingIntent {
+        return if (action != null) {
+            val intent = Intent(action)
+            PendingIntent.getBroadcast(
+                this,
+                0,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
+        } else {
+            val intent = Intent(this, MainActivity::class.java)
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            return PendingIntent.getActivity(
+                this,
+                0,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
+        }
+    }
+
+    private fun getPendingIntent(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java)
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        return PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        )
+    }
     // Add helper function to convert Player state to PlaybackStateCompat
     @SuppressLint("RestrictedApi")
     private fun convertPlayerStateToPlaybackState(playerState: Int): Int {
@@ -253,6 +318,7 @@ class MusicPlayerService : Service() {
             return
         }
         exoPlayer.play()
+        updateNotification()
     }
 
     fun pause() {
@@ -261,6 +327,7 @@ class MusicPlayerService : Service() {
             return
         }
         exoPlayer.pause()
+        updateNotification()
     }
 
     fun togglePlayPause() {
@@ -281,6 +348,10 @@ class MusicPlayerService : Service() {
             return
         }
         exoPlayer.seekToNextMediaItem()
+        updateNotification()
+        // 发送广播通知 UI 更新
+        val intent = Intent("com.example.musicplayer.PLAYER_STATE_CHANGED")
+        applicationContext.sendBroadcast(intent)
     }
 
     fun skipToPrevious() {
@@ -289,6 +360,14 @@ class MusicPlayerService : Service() {
             return
         }
         exoPlayer.seekToPreviousMediaItem()
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    updateNotification()
+                    exoPlayer.removeListener(this)
+                }
+            }
+        })
     }
 
     // playPrevious logic seems fine, just ensure exoPlayer is ready.

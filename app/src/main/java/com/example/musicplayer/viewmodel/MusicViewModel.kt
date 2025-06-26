@@ -23,6 +23,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _songs = MutableLiveData<List<Song>>()
     // 不可变的 LiveData，供外部观察歌曲列表
     val songs: LiveData<List<Song>> = _songs
+
+    // 公共方法，用于更新歌曲列表
+    fun updateSongs(songs: List<Song>) {
+        _songs.value = songs
+    }
     // 可变的 LiveData，用于存储加载状态
     private val _isLoading = MutableLiveData<Boolean>()
     // 不可变的 LiveData，供外部观察加载状态
@@ -122,7 +127,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun skipToNext() {
         if (isServiceBound) {
             musicPlayerService?.skipToNext()
-            updateCurrentSong()
+            updatePlayerState()
         }
     }
 
@@ -155,7 +160,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // 更新播放器状态
-    private fun updatePlayerState() {
+    fun updatePlayerState() {
         _isPlaying.value = musicPlayerService?.isPlaying() ?: false
         updateCurrentSong()
         _currentPosition.value = musicPlayerService?.getCurrentPosition() ?: 0

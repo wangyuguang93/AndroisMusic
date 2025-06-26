@@ -1,9 +1,12 @@
 package com.example.musicplayer.ui
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
@@ -36,6 +39,15 @@ class MainActivity : AppCompatActivity() {
     private val requestPermissionCode = 1001
     // 音乐播放器服务实例
     private var musicService: MusicPlayerService? = null
+    // 播放器状态变化广播接收器
+    private val playerStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.example.musicplayer.PLAYER_STATE_CHANGED") {
+                musicViewModel.updatePlayerState()
+            }
+        }
+    }
+    
     // 服务连接回调对象
     private val serviceConnection: ServiceConnection = object : ServiceConnection {
         // 服务连接成功时调用
@@ -44,6 +56,9 @@ class MainActivity : AppCompatActivity() {
             val binder = service as MusicPlayerService.LocalBinder
             musicService = binder.service
             updateLoopIcon()
+            setupPlaybackControls()
+            musicViewModel.updateSongs(musicService!!.getSongList())
+            musicViewModel.updatePlayerState()
         }
 
         // 服务断开连接时调用
@@ -77,6 +92,12 @@ class MainActivity : AppCompatActivity() {
 
         // 设置播放控制按钮点击事件
         setupPlaybackControls()
+
+        // 检查服务是否已连接，若已连接则更新播放器状态和歌曲数据
+        if (musicService != null) {
+            musicViewModel.updateSongs(musicService!!.getSongList())
+            musicViewModel.updatePlayerState()
+        }
     }
 
     // 移除搜索相关方法
@@ -276,5 +297,60 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unbindService(serviceConnection)
+        // 注销广播接收器
+        unregisterReceiver(playerStateReceiver)
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    override fun onResume() {
+        super.onResume()
+        if (musicService == null) {
+            Intent(this, MusicPlayerService::class.java).also {
+                bindService(it, serviceConnection, BIND_AUTO_CREATE)
+            }
+        } else {
+            musicViewModel.updateSongs(musicService?.getSongList() ?: emptyList())
+            musicViewModel.updatePlayerState()
+        }
+        musicViewModel.updatePlayerState()
+        // 观察 LiveData，确保状态变化时 UI 能及时更新
+        observeLiveData()
+        // 注册广播接收器
+        val filter = IntentFilter("com.example.musicplayer.PLAYER_STATE_CHANGED")
+        registerReceiver(playerStateReceiver, filter)
+    }
+
+    private fun observeLiveData() {
+        musicViewModel.isPlaying.observe(this) {
+            // 根据播放状态选择图标资源
+            val iconRes = if (it) {
+                R.drawable.ic_pause
+            } else {
+                R.drawable.ic_play
+            }
+            binding.btnPlayPause.setImageResource(iconRes)
+        }
+
+        musicViewModel.currentSong.observe(this) {
+            it?.let {
+                binding.tvSongTitle.text = it.title
+                binding.tvArtist.text = it.artist
+                // 使用Glide加载专辑封面
+                Glide.with(this)
+                    .load(it.albumArtUri ?: R.drawable.ic_music_placeholder)
+                    .placeholder(R.drawable.ic_music_placeholder)
+                    .into(binding.ivAlbumArt)
+            }
+        }
+
+        musicViewModel.currentPosition.observe(this) {
+            binding.seekBar.progress = it.toInt()
+            binding.tvCurrentTime.text = formatDuration(it)
+        }
+
+        musicViewModel.duration.observe(this) {
+            binding.seekBar.max = it.toInt()
+            binding.tvTotalTime.text = formatDuration(it)
+        }
     }
 }
