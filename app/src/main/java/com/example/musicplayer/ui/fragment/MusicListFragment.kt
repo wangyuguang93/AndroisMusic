@@ -1,5 +1,6 @@
 package com.example.musicplayer.ui.fragment
 
+import android.widget.SearchView
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -38,6 +39,25 @@ class MusicListFragment : Fragment() {
         musicViewModel = ViewModelProvider(requireActivity())[MusicViewModel::class.java]
         setupRecyclerView()
         observeViewModel()
+        setupSearchView()
+    }
+
+    private fun setupSearchView() {
+        binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String?): Boolean {
+                query?.let {
+                    musicViewModel.searchSongs(it)
+                }
+                return true
+            }
+
+            override fun onQueryTextChange(newText: String?): Boolean {
+                newText?.let {
+                    musicViewModel.searchSongs(it)
+                }
+                return true
+            }
+        })
     }
 
     // 设置 RecyclerView
@@ -71,6 +91,17 @@ class MusicListFragment : Fragment() {
         musicViewModel.currentSong.observe(viewLifecycleOwner) {
             it?.let {
                 songAdapter.setCurrentSongId(it.id)
+            }
+        }
+
+        musicViewModel.searchResults.observe(viewLifecycleOwner) {
+            if (it.isEmpty()) {
+                binding.tvEmpty.visibility = View.VISIBLE
+                binding.recyclerViewMusic.visibility = View.GONE
+            } else {
+                binding.tvEmpty.visibility = View.GONE
+                binding.recyclerViewMusic.visibility = View.VISIBLE
+                songAdapter.submitList(it)
             }
         }
     }

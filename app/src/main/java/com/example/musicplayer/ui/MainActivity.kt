@@ -23,6 +23,7 @@ import androidx.fragment.app.Fragment
 import androidx.media3.common.util.UnstableApi
 import com.example.musicplayer.service.MusicPlayerService
 import com.example.musicplayer.R
+import android.widget.SearchView
 
 // 主活动类，应用的主界面
 @UnstableApi
@@ -71,9 +72,31 @@ class MainActivity : AppCompatActivity() {
             requestPermission()
         }
 
+        // 移除设置搜索功能的调用
+        // setupSearchView()
+
         // 设置播放控制按钮点击事件
         setupPlaybackControls()
     }
+
+    // 移除搜索相关方法
+    // private fun setupSearchView() {
+    //     binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+    //         override fun onQueryTextSubmit(query: String?): Boolean {
+    //             query?.let {
+    //                 musicViewModel.searchSongs(it)
+    //             }
+    //             return true
+    //         }
+
+    //         override fun onQueryTextChange(newText: String?): Boolean {
+    //             newText?.let {
+    //                 musicViewModel.searchSongs(it)
+    //             }
+    //             return true
+    //         }
+    //     })
+    // }
 
 
 
@@ -156,10 +179,12 @@ class MainActivity : AppCompatActivity() {
 
     // 格式化时长（毫秒转分:秒）
     private fun formatDuration(duration: Long): String {
+        // 处理负数时长
+        val positiveDuration = if (duration < 0) 0 else duration
         // 计算分钟数
-        val minutes = (duration / 1000 / 60).toString()
+        val minutes = (positiveDuration / 1000 / 60).toString()
         // 计算秒数并补零
-        val seconds = (duration / 1000 % 60).toString().padStart(2, '0')
+        val seconds = (positiveDuration / 1000 % 60).toString().padStart(2, '0')
         return "$minutes:$seconds"
     }
     private fun checkPermission(): Boolean {

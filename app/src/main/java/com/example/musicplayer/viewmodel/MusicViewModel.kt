@@ -183,4 +183,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             isServiceBound = false
         }
     }
+    // 可变的 LiveData，用于存储搜索结果歌曲列表
+    private val _searchResults = MutableLiveData<List<Song>>()
+    // 不可变的 LiveData，供外部观察搜索结果歌曲列表
+    val searchResults: LiveData<List<Song>> = _searchResults
+
+    // 搜索歌曲的方法
+    fun searchSongs(query: String) {
+        val allSongs = _songs.value ?: emptyList()
+        val results = allSongs.filter {
+            it.title.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true)
+        }
+        _searchResults.value = results
+    }
 }
