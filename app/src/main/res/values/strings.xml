@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">音乐播放器</string>
+    <string name="music_list_title">我的音乐</string>
+    <string name="no_music_found">未找到音乐文件</string>
+    <string name="permission_required">需要必要权限才能运行应用</string>
+    <string name="usb_dac_connected">USB DAC已连接</string>
+    <string name="usb_dac_disconnected">USB DAC已断开连接</string>
+    <string name="usb_permission_request">请求USB设备权限</string>
+    <string name="action_play">播放</string>
+    <string name="action_pause">暂停</string>
+    <string name="action_next">下一曲</string>
+    <string name="action_previous">上一曲</string>
+    <string name="notification_channel_name">音乐播放</string>
+    <string name="album_art">专辑封面</string>
+    <string name="song_title_placeholder">未知歌曲</string>
+    <string name="artist_placeholder">未知艺术家</string>
+    <string name="previous_track">上一首</string>
+    <string name="play_pause">播放/暂停</string>
+    <string name="next_track">下一首</string>
+</resources>

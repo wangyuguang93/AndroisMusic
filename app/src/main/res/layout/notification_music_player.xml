@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="64dp"
+    android:background="@android:color/background_dark"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <ImageView
+        android:id="@+id/iv_album_art"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:contentDescription="@string/album_art"
+        android:src="@drawable/ic_music_placeholder"/>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tv_song_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:text="@string/song_title_placeholder"/>
+
+        <TextView
+            android:id="@+id/tv_song_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@android:color/darker_gray"
+            android:textSize="12sp"
+            android:text="@string/artist_placeholder"/>
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/btn_previous"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/previous_track"
+        android:src="@drawable/ic_skip_previous"
+        app:tint="@color/white"
+        />
+
+    <ImageButton
+        android:id="@+id/btn_play_pause"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/play_pause"
+        android:src="@drawable/ic_play"
+        app:tint="@color/white"/>
+
+    <ImageButton
+        android:id="@+id/btn_next"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/next_track"
+        android:src="@drawable/ic_skip_next"
+        app:tint="@color/white"/>
+
+</LinearLayout>

@@ -1,0 +1,17 @@
+# Android 自动生成的文件（绝对不上传）
+.idea
+*.iml
+build/
+captures/
+output.json
+*.apk
+*.zip
+*.ap_
+
+# 编译缓存
+local.properties
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db
