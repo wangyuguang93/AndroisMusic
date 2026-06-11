@@ -3,8 +3,10 @@ package com.example.musicplayer.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -43,6 +45,11 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         musicViewModel.refreshPlayerState()
+        
+        // 检查权限是否已被授予（用户可能从系统设置返回）
+        if (checkPermission()) {
+            initFragment()
+        }
     }
 
     private fun setupPlaybackControls() {
@@ -74,8 +81,16 @@ class MainActivity : AppCompatActivity() {
                 Glide.with(this)
                     .load(it.albumArtUri)
                     .placeholder(R.drawable.ic_music_placeholder)
+                    .error(R.drawable.ic_music_placeholder)
+                    .fallback(R.drawable.ic_music_placeholder)
                     .into(binding.ivAlbumArt)
             }
+        }
+
+        // 点击专辑封面跳转到播放详情页面
+        binding.ivAlbumArt.setOnClickListener {
+            val intent = Intent(this, PlayDetailActivity::class.java)
+            startActivity(intent)
         }
 
         musicViewModel.currentPosition.observe(this) {
@@ -146,13 +161,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
+        // 扫描歌曲只需要存储权限，录音权限只用于频谱可视化
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.READ_MEDIA_AUDIO
             ) == PackageManager.PERMISSION_GRANTED
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+: 需要检查"所有文件访问"权限
+            return Environment.isExternalStorageManager()
         } else {
-            ContextCompat.checkSelfPermission(
+            return ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.READ_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
@@ -160,17 +179,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestPermission() {
-        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.READ_MEDIA_AUDIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+: 需要引导用户到系统设置开启"所有文件访问"权限
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                intent.data = Uri.parse("package:${packageName}")
+                startActivity(intent)
+            } catch (e: Exception) {
+                // 回退到标准权限请求
+                val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.RECORD_AUDIO)
+                } else {
+                    arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.RECORD_AUDIO)
+                }
+                ActivityCompat.requestPermissions(this, permissions, requestPermissionCode)
+            }
         } else {
-            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            val permissions = arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.RECORD_AUDIO)
+            ActivityCompat.requestPermissions(this, permissions, requestPermissionCode)
         }
-
-        ActivityCompat.requestPermissions(
-            this,
-            permissions,
-            requestPermissionCode
-        )
     }
 
     override fun onRequestPermissionsResult(
@@ -180,12 +207,33 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == requestPermissionCode) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            // 检查存储权限是否被授予（扫描歌曲只需要存储权限）
+            val storagePermissionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissions.indexOf(Manifest.permission.READ_MEDIA_AUDIO).let { index ->
+                    index >= 0 && grantResults[index] == PackageManager.PERMISSION_GRANTED
+                }
+            } else {
+                permissions.indexOf(Manifest.permission.READ_EXTERNAL_STORAGE).let { index ->
+                    index >= 0 && grantResults[index] == PackageManager.PERMISSION_GRANTED
+                }
+            }
+            
+            if (storagePermissionGranted) {
                 initFragment()
             } else {
+                val deniedPermissions = mutableListOf<String>()
+                permissions.forEachIndexed { index, permission ->
+                    if (grantResults[index] != PackageManager.PERMISSION_GRANTED) {
+                        when (permission) {
+                            Manifest.permission.READ_EXTERNAL_STORAGE,
+                            Manifest.permission.READ_MEDIA_AUDIO -> deniedPermissions.add("存储")
+                            Manifest.permission.RECORD_AUDIO -> deniedPermissions.add("录音")
+                        }
+                    }
+                }
                 Toast.makeText(
                     this,
-                    "需要存储权限才能扫描音乐文件",
+                    "需要${deniedPermissions.joinToString("和")}权限才能使用应用",
                     Toast.LENGTH_LONG
                 ).show()
                 finish()
@@ -194,6 +242,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initFragment() {
+        musicViewModel.startLoadMusic()
         replaceFragment(MusicListFragment())
     }
 

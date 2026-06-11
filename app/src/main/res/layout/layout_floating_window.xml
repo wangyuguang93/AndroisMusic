@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/colorPrimary"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="16dp">
+
+    <!-- 旋转唱片 -->
+    <ImageView
+        android:id="@+id/iv_disc_floating"
+        android:layout_width="200dp"
+        android:layout_height="200dp"
+        android:contentDescription="唱片"
+        android:src="@drawable/ic_music_placeholder" />
+
+    <!-- 条形频谱视图 -->
+    <com.example.musicplayer.view.SpectrumView
+        android:id="@+id/spectrum_view_floating"
+        android:layout_width="match_parent"
+        android:layout_height="80dp"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout>

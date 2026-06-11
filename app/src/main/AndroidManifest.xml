@@ -4,9 +4,21 @@
 
     <!-- 存储权限：用于扫描本地音乐文件 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
+    
+    <!-- Android 13+ 音频权限 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    
+    <!-- Android 11+ 所有文件访问权限 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    
+    <!-- 悬浮窗权限：用于锁屏显示 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    
+    <!-- 音频录制权限：用于频谱可视化 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- USB权限：用于USB DAC播放 -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
@@ -29,6 +41,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 播放详情页面 -->
+        <activity
+            android:name=".ui.PlayDetailActivity"
+            android:exported="false" />
+
+        <!-- 扫描进度页面 -->
+        <activity
+            android:name=".ui.ScanProgressActivity"
+            android:exported="false" />
 
         <!-- 音乐播放服务 -->
         <service

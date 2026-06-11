@@ -1,15 +1,24 @@
 package com.example.musicplayer.ui.fragment
 
+import android.content.Intent
 import android.os.Bundle
+import com.example.musicplayer.service.MusicPlayerService
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuInflater
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.widget.PopupMenu
+import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.musicplayer.R
 import com.example.musicplayer.databinding.FragmentMusicListBinding
+import com.example.musicplayer.ui.ScanProgressActivity
 import com.example.musicplayer.ui.adapter.SongAdapter
 import com.example.musicplayer.viewmodel.MusicViewModel
 
@@ -24,6 +33,7 @@ class MusicListFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         binding = FragmentMusicListBinding.inflate(inflater, container, false)
+        setHasOptionsMenu(true)
         return binding.root
     }
 
@@ -34,7 +44,76 @@ class MusicListFragment : Fragment() {
         
         setupRecyclerView()
         setupSearchView()
+        setupRefresh()
+        setupMenu()
         observeViewModel()
+    }
+    
+    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
+        inflater.inflate(R.menu.main_menu, menu)
+        super.onCreateOptionsMenu(menu, inflater)
+    }
+    
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.menu_scan -> {
+                startScanActivity()
+                true
+            }
+            R.id.menu_exit -> {
+                exitApp()
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+    
+    private fun setupMenu() {
+        binding.ivMenu.setOnClickListener {
+            val popup = PopupMenu(requireContext(), binding.ivMenu)
+            popup.menuInflater.inflate(R.menu.main_menu, popup.menu)
+            popup.setOnMenuItemClickListener { menuItem ->
+                when (menuItem.itemId) {
+                    R.id.menu_scan -> {
+                        startScanActivity()
+                        true
+                    }
+                    R.id.menu_exit -> {
+                        exitApp()
+                        true
+                    }
+                    else -> false
+                }
+            }
+            popup.show()
+        }
+    }
+    
+    private fun startScanActivity() {
+        val intent = Intent(requireContext(), ScanProgressActivity::class.java)
+        startActivity(intent)
+    }
+    
+    private fun exitApp() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("退出应用")
+            .setMessage("确定要退出应用吗？")
+            .setPositiveButton("确定") { _, _ ->
+                // 停止后台播放服务
+                val stopIntent = Intent(requireContext(), MusicPlayerService::class.java)
+                requireContext().stopService(stopIntent)
+                // 结束应用
+                requireActivity().finishAffinity()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun setupRefresh() {
+        // 下拉刷新：只刷新当前列表显示，不扫描新歌曲
+        binding.swipeRefreshLayout.setOnRefreshListener {
+            binding.swipeRefreshLayout.isRefreshing = false
+        }
     }
 
     private fun setupSearchView() {
@@ -122,6 +201,11 @@ class MusicListFragment : Fragment() {
             it?.let {
                 songAdapter.setCurrentSongId(it.id)
             }
+        }
+
+        // 观察加载状态，控制刷新动画
+        musicViewModel.isLoading.observe(viewLifecycleOwner) { isLoading ->
+            binding.swipeRefreshLayout.isRefreshing = isLoading
         }
     }
 }

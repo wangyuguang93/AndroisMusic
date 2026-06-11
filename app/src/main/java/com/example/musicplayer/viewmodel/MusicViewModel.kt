@@ -45,6 +45,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _isShuffleEnabled = MutableLiveData<Boolean>(false)
     val isShuffleEnabled: LiveData<Boolean> = _isShuffleEnabled
 
+    private val _scanProgress = MutableLiveData<Int>(0)
+    val scanProgress: LiveData<Int> = _scanProgress
+
+    private val _scanCurrentDir = MutableLiveData<String>("")
+    val scanCurrentDir: LiveData<String> = _scanCurrentDir
+
     private var musicPlayerService: MusicPlayerService? = null
     private var isServiceBound = false
     private var hasRestoredState = false
@@ -61,7 +67,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             musicPlayerService?.setPlayerStateListener(object : MusicPlayerService.PlayerStateListener {
                 override fun onCurrentSongChanged(song: Song?) {
                     _currentSong.postValue(song)
-                    _duration.postValue(musicPlayerService?.getDuration())
+                    // 使用歌曲对象的时长属性，更可靠
+                    _duration.postValue(song?.duration ?: musicPlayerService?.getDuration() ?: 0L)
+                    // 重置当前位置
+                    _currentPosition.postValue(0)
                     // 保存播放状态
                     song?.let {
                         savePlaybackState(it.id, _currentPosition.value ?: 0, _isPlaying.value ?: false, _loopMode.value ?: 0)
@@ -103,8 +112,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        loadMusic()
         startAndBindService()
+    }
+
+    fun startLoadMusic() {
+        loadMusic()
     }
 
     private fun startAndBindService() {
@@ -121,23 +133,30 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadMusic() {
+        android.util.Log.d("MusicViewModel", "loadMusic() 方法被调用")
         _isLoading.value = true
         viewModelScope.launch {
             try {
                 // 扫描设备上的音乐文件
                 val scannedSongs = musicScanner.scanMusic()
+                android.util.Log.d("MusicViewModel", "扫描到 ${scannedSongs.size} 首歌曲")
                 
                 // 尝试加载保存的歌曲ID列表
                 val finalSongs = if (playbackStateStorage.hasSavedSongList()) {
                     val savedSongIds = playbackStateStorage.getSavedSongIds()
+                    android.util.Log.d("MusicViewModel", "存在保存的歌曲列表，重新排序")
                     // 根据保存的ID顺序重新排序扫描到的歌曲
-                    reorderSongsBySavedIds(scannedSongs, savedSongIds)
+                    val reordered = reorderSongsBySavedIds(scannedSongs, savedSongIds)
+                    android.util.Log.d("MusicViewModel", "重新排序后歌曲数量: ${reordered.size}")
+                    reordered
                 } else {
                     scannedSongs
                 }
                 
+                android.util.Log.d("MusicViewModel", "最终歌曲数量: ${finalSongs.size}")
                 _songs.postValue(finalSongs)
                 _filteredSongs.postValue(finalSongs)
+                android.util.Log.d("MusicViewModel", "歌曲列表已更新到 LiveData")
                 
                 // 尝试恢复播放状态
                 restorePlaybackState(finalSongs)
@@ -155,8 +174,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun reorderSongsBySavedIds(scanned: List<Song>, savedIds: List<Long>): List<Song> {
         val scannedMap = scanned.associateBy { it.id }
-        // 按保存的ID顺序排列歌曲，保留用户排序
-        return savedIds.mapNotNull { id -> scannedMap[id] }
+        val scannedIds = scanned.map { it.id }.toSet()
+        
+        // 先按保存的ID顺序排列已存在的歌曲
+        val reordered = savedIds.mapNotNull { id -> 
+            if (scannedIds.contains(id)) {
+                scannedMap[id]
+            } else {
+                null
+            }
+        }
+        
+        // 添加所有不在保存列表中的新歌（保持原有顺序）
+        val newSongs = scanned.filter { !savedIds.contains(it.id) }
+        
+        android.util.Log.d("MusicViewModel", "reorderSongsBySavedIds: 保存列表中匹配 ${reordered.size} 首，新增 ${newSongs.size} 首")
+        
+        return reordered + newSongs
     }
 
     private fun restorePlaybackState(songs: List<Song>) {
@@ -330,6 +364,103 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             _isShuffleEnabled.value = musicPlayerService!!.isShuffleModeEnabled
             if (_isPlaying.value == true) {
                 startPositionUpdate()
+            }
+        }
+    }
+
+    // 刷新歌曲列表（用于添加新歌后手动刷新）
+    fun refreshSongList() {
+        loadMusic()
+    }
+
+    // 强制刷新：触发系统媒体库扫描后重新加载
+    fun forceRefreshSongList() {
+        _isLoading.value = true
+        _scanProgress.value = 0
+        _scanCurrentDir.value = "准备扫描..."
+        
+        viewModelScope.launch {
+            try {
+                // 设置扫描进度监听器
+                musicScanner.setProgressListener(object : com.example.musicplayer.scanner.FileScanner.ScanProgressListener {
+                    override fun onProgressChanged(progress: Int, currentDir: String, foundCount: Int) {
+                        _scanProgress.postValue(progress)
+                        _scanCurrentDir.postValue(currentDir)
+                        // 实时更新发现的歌曲数量
+                        _songs.postValue(_songs.value?.toMutableList() ?: mutableListOf())
+                    }
+                })
+                
+                // 使用混合扫描方式
+                val scannedSongs = musicScanner.scanWithRefresh()
+                
+                // 尝试加载保存的歌曲ID列表
+                val finalSongs = if (playbackStateStorage.hasSavedSongList()) {
+                    val savedSongIds = playbackStateStorage.getSavedSongIds()
+                    reorderSongsBySavedIds(scannedSongs, savedSongIds)
+                } else {
+                    scannedSongs
+                }
+                
+                _songs.postValue(finalSongs)
+                _filteredSongs.postValue(finalSongs)
+                _scanCurrentDir.postValue("扫描完成")
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _scanCurrentDir.postValue("扫描失败")
+                // 失败时回退到标准扫描
+                loadMusic()
+            } finally {
+                _isLoading.postValue(false)
+                _scanProgress.postValue(100)
+            }
+        }
+    }
+    
+    // 菜单触发的扫描：只使用文件系统遍历（最多5层）
+    fun scanFromMenu() {
+        _isLoading.value = true
+        _scanProgress.value = 0
+        _scanCurrentDir.value = "准备扫描..."
+        
+        // 创建临时列表来存储扫描过程中发现的歌曲
+        val tempSongs = mutableListOf<Song>()
+        
+        viewModelScope.launch {
+            try {
+                // 设置扫描进度监听器
+                musicScanner.setProgressListener(object : com.example.musicplayer.scanner.FileScanner.ScanProgressListener {
+                    override fun onProgressChanged(progress: Int, currentDir: String, foundCount: Int) {
+                        // 进度为 -1 表示只更新目录，不改变进度条
+                        if (progress >= 0) {
+                            _scanProgress.postValue(progress)
+                        }
+                        _scanCurrentDir.postValue(currentDir)
+                        // 实时更新发现的歌曲数量显示
+                        _songs.postValue(tempSongs.toList())
+                    }
+                })
+                
+                // 只使用文件系统遍历扫描（最多5层深度），并传递临时列表用于实时更新
+                val scannedSongs = musicScanner.scanWithRefreshFileOnly(tempSongs)
+                
+                // 尝试加载保存的歌曲ID列表
+                val finalSongs = if (playbackStateStorage.hasSavedSongList()) {
+                    val savedSongIds = playbackStateStorage.getSavedSongIds()
+                    reorderSongsBySavedIds(scannedSongs, savedSongIds)
+                } else {
+                    scannedSongs
+                }
+                
+                _songs.postValue(finalSongs)
+                _filteredSongs.postValue(finalSongs)
+                _scanCurrentDir.postValue("扫描完成")
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _scanCurrentDir.postValue("扫描失败")
+            } finally {
+                _isLoading.postValue(false)
+                _scanProgress.postValue(100)
             }
         }
     }

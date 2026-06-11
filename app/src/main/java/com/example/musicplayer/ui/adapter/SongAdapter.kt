@@ -43,6 +43,8 @@ class SongAdapter(
             Glide.with(binding.ivAlbumArt.context)
                 .load(song.albumArtUri)
                 .placeholder(R.drawable.ic_music_placeholder)
+                .error(R.drawable.ic_music_placeholder)
+                .fallback(R.drawable.ic_music_placeholder)
                 .into(binding.ivAlbumArt)
         }
     }
