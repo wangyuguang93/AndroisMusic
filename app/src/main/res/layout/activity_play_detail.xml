@@ -25,19 +25,50 @@
             app:tint="@color/colorPrimary" />
     </LinearLayout>
 
-    <!-- 唱片区：上半区占60%高度 -->
+    <!-- 当前歌曲信息 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="10dp"
+        android:layout_marginBottom="15dp">
+
+        <TextView
+            android:id="@+id/tv_song_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="歌曲标题"
+            android:textColor="@color/white"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:ellipsize="end"
+            android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/tv_song_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="艺术家"
+            android:textColor="@color/white_70"
+            android:textSize="16sp"
+            android:layout_marginTop="5dp"
+            android:ellipsize="end"
+            android:maxLines="1" />
+    </LinearLayout>
+
+    <!-- 唱片区：上半区 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="6"
+        android:layout_weight="4"
         android:orientation="vertical"
         android:gravity="center">
 
         <!-- 圆形黑胶唱片 -->
         <ImageView
             android:id="@+id/iv_disc"
-            android:layout_width="260dp"
-            android:layout_height="260dp"
+            android:layout_width="180dp"
+            android:layout_height="180dp"
             android:contentDescription="黑胶唱片"
             android:scaleType="centerCrop"
             android:background="@drawable/circle_black_background"
@@ -46,14 +77,14 @@
         <!-- 频谱区：条形频谱控件 -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="70dp"
+            android:layout_height="120dp"
             android:layout_marginTop="15dp"
             android:gravity="center">
 
             <com.example.musicplayer.view.SpectrumView
                 android:id="@+id/spectrum_view"
                 android:layout_width="match_parent"
-                android:layout_height="70dp"
+                android:layout_height="120dp"
                 android:layout_marginHorizontal="15dp" />
         </LinearLayout>
     </LinearLayout>
@@ -65,11 +96,11 @@
         android:layout_marginVertical="15dp"
         android:background="@color/white" />
 
-    <!-- EQ区：下半区占30%高度 -->
+    <!-- EQ区 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="3"
+        android:layout_weight="2"
         android:orientation="vertical"
         android:paddingHorizontal="15dp">
 
@@ -203,7 +234,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 控制区：播放/暂停按钮 -->
+    <!-- 控制区：上一首、播放/暂停、下一首按钮 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -211,14 +242,44 @@
         android:orientation="vertical"
         android:gravity="center">
 
-        <ImageButton
-            android:id="@+id/btn_play_pause"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:background="@drawable/btn_round_white_bg"
-            android:contentDescription="播放/暂停"
-            android:src="@drawable/ic_play"
-            app:tint="@color/colorPrimary" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginHorizontal="30dp">
+
+            <!-- 上一首按钮 -->
+            <ImageButton
+                android:id="@+id/btn_previous"
+                android:layout_width="50dp"
+                android:layout_height="50dp"
+                android:background="@drawable/btn_round_white_bg"
+                android:contentDescription="上一首"
+                android:src="@drawable/ic_skip_previous"
+                app:tint="@color/colorPrimary" />
+
+            <!-- 播放/暂停按钮 -->
+            <ImageButton
+                android:id="@+id/btn_play_pause"
+                android:layout_width="70dp"
+                android:layout_height="70dp"
+                android:background="@drawable/btn_round_white_bg"
+                android:contentDescription="播放/暂停"
+                android:src="@drawable/ic_play"
+                app:tint="@color/colorPrimary"
+                android:layout_marginHorizontal="20dp" />
+
+            <!-- 下一首按钮 -->
+            <ImageButton
+                android:id="@+id/btn_next"
+                android:layout_width="50dp"
+                android:layout_height="50dp"
+                android:background="@drawable/btn_round_white_bg"
+                android:contentDescription="下一首"
+                android:src="@drawable/ic_skip_next"
+                app:tint="@color/colorPrimary" />
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>

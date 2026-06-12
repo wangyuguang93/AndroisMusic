@@ -1,9 +1,12 @@
 package com.example.musicplayer.ui
 
+import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory
 import com.example.musicplayer.databinding.ActivityScanProgressBinding
 import com.example.musicplayer.viewmodel.MusicViewModel
 
@@ -16,12 +19,16 @@ class ScanProgressActivity : AppCompatActivity() {
         binding = ActivityScanProgressBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        musicViewModel = ViewModelProvider(this)[MusicViewModel::class.java]
+        // 使用 Application 级别的 ViewModelStore，确保与 MainActivity 共享同一个 ViewModel 实例
+        musicViewModel = ViewModelProvider(
+            (application as androidx.lifecycle.ViewModelStoreOwner),
+            AndroidViewModelFactory.getInstance(application)
+        )[MusicViewModel::class.java]
 
         setupListeners()
         observeViewModel()
 
-        // 开始扫描（只使用文件系统遍历，最多5层）
+        // 开始扫描（只使用文件系统遍历，最多 5 层）
         musicViewModel.scanFromMenu()
     }
 
@@ -33,6 +40,8 @@ class ScanProgressActivity : AppCompatActivity() {
 
         // 返回主界面按钮
         binding.btnBack.setOnClickListener {
+            // 扫描完成后，设置返回结果通知主界面刷新
+            setResult(Activity.RESULT_OK)
             finish()
         }
     }
@@ -60,7 +69,7 @@ class ScanProgressActivity : AppCompatActivity() {
 
         // 观察歌曲列表
         musicViewModel.songs.observe(this) { songs ->
-            binding.tvFoundCount.text = "已发现: ${songs.size} 首歌曲"
+            binding.tvFoundCount.text = "已发现：${songs.size} 首歌曲"
         }
     }
 }

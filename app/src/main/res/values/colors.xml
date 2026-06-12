@@ -1,23 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary">#2196F3</color>
-    <color name="colorPrimaryDark">#1976D2</color>
-    <color name="colorAccent">#FF4081</color>
+    <color name="colorPrimary">#1E88E5</color>
+    <color name="colorPrimaryDark">#1565C0</color>
+    <color name="colorAccent">#42A5F5</color>
+    <color name="colorSecondaryDark">#424242</color>
     <color name="white">#FFFFFF</color>
-    <color name="black">#000000</color>
-    <color name="gray">#808080</color>
-    <color name="light_gray">#F5F5F5</color>
-    <color name="dark_gray">#424242</color>
-    <color name="colorSecondaryDark">#0D47A1</color>
-    <color name="playing_pink">#FFE4E1</color>
-    <color name="transparent">#00000000</color>
-    <color name="dragging_background">#E3F2FD</color>
-    
-    <!-- 播放详情页面颜色 -->
-    <color name="light_blue_background">#1E3A5F</color>
-    <color name="blue_spectrum">#42A5F5</color>
+    <color name="white_70">#B3FFFFFF</color>
     <color name="white_20">#33FFFFFF</color>
-    
-    <!-- 扫描进度页面颜色 -->
-    <color name="background">#F5F5F5</color>
+    <color name="light_blue_background">#1976D2</color>
+    <color name="blue_spectrum">#42A5F5</color>
+    <color name="black">#000000</color>
+    <color name="gray">#9E9E9E</color>
+    <color name="light_gray">#F5F5F5</color>
+    <color name="background">#121212</color>
+    <color name="playing_pink">#E91E63</color>
+    <color name="transparent">#00000000</color>
 </resources>

@@ -14,6 +14,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory
 import com.bumptech.glide.Glide
 import com.example.musicplayer.R
 import com.example.musicplayer.databinding.ActivityMainBinding
@@ -31,7 +32,10 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        musicViewModel = ViewModelProvider(this)[MusicViewModel::class.java]
+        musicViewModel = ViewModelProvider(
+            (application as androidx.lifecycle.ViewModelStoreOwner),
+            AndroidViewModelFactory.getInstance(application)
+        )[MusicViewModel::class.java]
 
         if (checkPermission()) {
             initFragment()
@@ -46,10 +50,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         musicViewModel.refreshPlayerState()
         
-        // 检查权限是否已被授予（用户可能从系统设置返回）
-        if (checkPermission()) {
-            initFragment()
-        }
+        // 不再在 onResume 中重复调用 initFragment，避免触发 loadMusic
+        // initFragment 只在 onCreate 中调用一次
     }
 
     private fun setupPlaybackControls() {

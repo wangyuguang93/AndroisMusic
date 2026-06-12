@@ -31,8 +31,12 @@ public class PlayDetailActivity extends AppCompatActivity {
     private SeekBar seekbarTreble;
     private TextView tvBassValue;
     private TextView tvTrebleValue;
+    private TextView tvSongTitle;
+    private TextView tvSongArtist;
     private ImageButton btnPlayPause;
     private ImageButton btnBack;
+    private ImageButton btnPrevious;
+    private ImageButton btnNext;
 
     private MusicViewModel musicViewModel;
     private ObjectAnimator discAnimator;
@@ -65,8 +69,10 @@ public class PlayDetailActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_play_detail);
 
-        musicViewModel = ViewModelProvider.AndroidViewModelFactory.getInstance(getApplication())
-                .create(MusicViewModel.class);
+        musicViewModel = new ViewModelProvider(
+                (androidx.lifecycle.ViewModelStoreOwner) getApplication(),
+                ViewModelProvider.AndroidViewModelFactory.getInstance(getApplication())
+        ).get(MusicViewModel.class);
 
         initViews();
         setupDiscAnimation();
@@ -84,8 +90,12 @@ public class PlayDetailActivity extends AppCompatActivity {
         seekbarTreble = findViewById(R.id.seekbar_treble);
         tvBassValue = findViewById(R.id.tv_bass_value);
         tvTrebleValue = findViewById(R.id.tv_treble_value);
+        tvSongTitle = findViewById(R.id.tv_song_title);
+        tvSongArtist = findViewById(R.id.tv_song_artist);
         btnPlayPause = findViewById(R.id.btn_play_pause);
         btnBack = findViewById(R.id.btn_back);
+        btnPrevious = findViewById(R.id.btn_previous);
+        btnNext = findViewById(R.id.btn_next);
 
         btnBack.setOnClickListener(v -> finish());
     }
@@ -99,7 +109,14 @@ public class PlayDetailActivity extends AppCompatActivity {
     }
 
     private void setupPlaybackControls() {
+        // 播放/暂停按钮
         btnPlayPause.setOnClickListener(v -> musicViewModel.togglePlayPause());
+
+        // 上一首按钮
+        btnPrevious.setOnClickListener(v -> musicViewModel.skipToPrevious());
+
+        // 下一首按钮
+        btnNext.setOnClickListener(v -> musicViewModel.skipToNext());
 
         musicViewModel.isPlaying().observe(this, isPlaying -> {
             // 更新播放/暂停按钮图标
@@ -116,13 +133,17 @@ public class PlayDetailActivity extends AppCompatActivity {
 
         musicViewModel.getCurrentSong().observe(this, song -> {
             if (song != null) {
+                // 更新歌曲信息
+                tvSongTitle.setText(song.getTitle());
+                tvSongArtist.setText(song.getArtist());
+                
                 // 加载专辑封面
-            Glide.with(this)
-                    .load(song.getAlbumArtUri())
-                    .placeholder(R.drawable.ic_music_placeholder)
-                    .error(R.drawable.ic_music_placeholder)
-                    .fallback(R.drawable.ic_music_placeholder)
-                    .into(ivDisc);
+                Glide.with(this)
+                        .load(song.getAlbumArtUri())
+                        .placeholder(R.drawable.ic_music_placeholder)
+                        .error(R.drawable.ic_music_placeholder)
+                        .fallback(R.drawable.ic_music_placeholder)
+                        .into(ivDisc);
             }
         });
     }
@@ -156,11 +177,14 @@ public class PlayDetailActivity extends AppCompatActivity {
             musicPlayerService.setupVisualizer();
             
             // 设置频谱数据监听器
-            musicPlayerService.setSpectrumListener(data -> {
-                if (spectrumView != null) {
-                    runOnUiThread(() -> {
-                        spectrumView.updateSpectrum(data);
-                    });
+            musicPlayerService.setSpectrumListener(new MusicPlayerService.SpectrumListener() {
+                @Override
+                public void onSpectrumData(byte[] data) {
+                    if (spectrumView != null && data != null) {
+                        runOnUiThread(() -> {
+                            spectrumView.updateSpectrum(data);
+                        });
+                    }
                 }
             });
         }

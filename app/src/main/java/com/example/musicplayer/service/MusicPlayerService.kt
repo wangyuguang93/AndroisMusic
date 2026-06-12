@@ -65,14 +65,53 @@ class MusicPlayerService : android.app.Service() {
     }
 
     private var playerStateListener: PlayerStateListener? = null
-    private var spectrumListener: SpectrumListener? = null
+    private val playerStateListeners = mutableListOf<PlayerStateListener>()
+    private val spectrumListeners = mutableListOf<SpectrumListener>()
 
-    fun setPlayerStateListener(listener: PlayerStateListener?) {
-        playerStateListener = listener
+    fun addPlayerStateListener(listener: PlayerStateListener) {
+        if (!playerStateListeners.contains(listener)) {
+            playerStateListeners.add(listener)
+        }
+    }
+
+    fun removePlayerStateListener(listener: PlayerStateListener) {
+        playerStateListeners.remove(listener)
+    }
+
+    private fun notifyCurrentSongChanged(song: Song?) {
+        playerStateListeners.forEach { it.onCurrentSongChanged(song) }
+    }
+
+    private fun notifyPlaybackStateChanged(isPlaying: Boolean) {
+        playerStateListeners.forEach { it.onPlaybackStateChanged(isPlaying) }
+    }
+
+    private fun notifyLoopModeChanged(mode: Int) {
+        playerStateListeners.forEach { it.onLoopModeChanged(mode) }
+    }
+
+    private fun notifyPositionChanged(position: Long, duration: Long) {
+        playerStateListeners.forEach { it.onPositionChanged(position, duration) }
+    }
+
+    fun addSpectrumListener(listener: SpectrumListener) {
+        if (!spectrumListeners.contains(listener)) {
+            spectrumListeners.add(listener)
+            Log.d(TAG, "添加频谱监听器，当前监听器数量: ${spectrumListeners.size}")
+        }
+    }
+
+    fun removeSpectrumListener(listener: SpectrumListener) {
+        spectrumListeners.remove(listener)
+        Log.d(TAG, "移除频谱监听器，当前监听器数量: ${spectrumListeners.size}")
     }
 
     fun setSpectrumListener(listener: SpectrumListener?) {
-        spectrumListener = listener
+        // 兼容旧API：清空所有监听器并添加新的
+        spectrumListeners.clear()
+        listener?.let {
+            spectrumListeners.add(it)
+        }
     }
 
     var loopMode = LOOP_MODE_NONE
@@ -107,7 +146,6 @@ class MusicPlayerService : android.app.Service() {
     private var isEqualizerEnabled = false
     private var visualizer: Visualizer? = null
     private var isVisualizerEnabled = false
-    private var audioAnalyzer: AudioAnalyzer? = null
 
     // 锁屏悬浮窗相关变量
     private var floatingWindowManager: FloatingWindowManager? = null
@@ -157,19 +195,21 @@ class MusicPlayerService : android.app.Service() {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 super.onMediaItemTransition(mediaItem, reason)
                 updateCurrentSong()
+                // 切换歌曲时重置播放进度为 0
+                exoPlayer.seekTo(0)
                 // 使用歌曲对象的时长属性，而不是 exoPlayer.duration（可能还未准备好）
-                playerStateListener?.onCurrentSongChanged(currentSong)
+                notifyCurrentSongChanged(currentSong)
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 super.onPlaybackStateChanged(playbackState)
-                playerStateListener?.onPlaybackStateChanged(exoPlayer.isPlaying)
+                notifyPlaybackStateChanged(exoPlayer.isPlaying)
                 
                 if (playbackState == Player.STATE_READY) {
-                    // 播放器准备好后初始化频谱可视化
+                    // 播放器准备好后初始化频谱可视化（使用系统Visualizer从播放音频获取数据）
                     setupVisualizer()
                     // 此时更新当前歌曲信息，确保时长正确
-                    playerStateListener?.onCurrentSongChanged(currentSong)
+                    notifyCurrentSongChanged(currentSong)
                 }
                 
                 if (playbackState == Player.STATE_ENDED) {
@@ -188,7 +228,7 @@ class MusicPlayerService : android.app.Service() {
 
             override fun onPositionDiscontinuity(reason: Int) {
                 super.onPositionDiscontinuity(reason)
-                playerStateListener?.onCurrentSongChanged(currentSong)
+                notifyCurrentSongChanged(currentSong)
             }
         })
     }
@@ -397,14 +437,58 @@ class MusicPlayerService : android.app.Service() {
     }
 
     fun setMediaItems(songs: List<Song>, startIndex: Int) {
+        android.util.Log.d(TAG, "setMediaItems() 被调用，歌曲数: ${songs.size}, 起始索引: $startIndex")
+        
+        // 优化：检查歌曲列表是否已经相同，避免不必要的重新设置
+        if (songList.isNotEmpty() && songs.size == songList.size) {
+            val isSameList = songs.zip(songList).all { (new, old) -> new.id == old.id }
+            if (isSameList) {
+                android.util.Log.d(TAG, "歌曲列表未变化，跳过重新设置媒体列表")
+                // 只更新当前位置（如果需要）
+                if (startIndex >= 0 && startIndex < songs.size && startIndex != currentPosition) {
+                    currentPosition = startIndex
+                    currentSong = songs[startIndex]
+                    exoPlayer.seekTo(startIndex, 0)
+                    android.util.Log.d(TAG, "仅更新当前索引到: $startIndex")
+                }
+                return
+            }
+        }
+        
+        // 保存当前播放状态
+        val wasPlaying = exoPlayer.isPlaying
+        val currentPlaybackPosition = exoPlayer.currentPosition
+        android.util.Log.d(TAG, "当前播放状态: isPlaying=$wasPlaying, position=$currentPlaybackPosition")
+        
         songList = songs
+        android.util.Log.d(TAG, "songList 已更新，当前大小: ${songList.size}")
+        
         val mediaItems = songs.map { MediaItem.fromUri(it.uri) }
+        android.util.Log.d(TAG, "创建 ${mediaItems.size} 个 MediaItem")
+        
         exoPlayer.setMediaItems(mediaItems)
+        android.util.Log.d(TAG, "ExoPlayer 媒体列表已设置")
+        
         exoPlayer.prepare()
-        exoPlayer.seekTo(startIndex, 0)
-        if (startIndex < songs.size) {
+        android.util.Log.d(TAG, "ExoPlayer 已准备")
+        
+        if (startIndex >= 0 && startIndex < songs.size) {
+            exoPlayer.seekTo(startIndex, currentPlaybackPosition)
+            android.util.Log.d(TAG, "ExoPlayer 已跳转到索引 $startIndex, 位置 $currentPlaybackPosition")
+            
             currentSong = songs[startIndex]
             currentPosition = startIndex
+            android.util.Log.d(TAG, "当前歌曲已更新: ${currentSong?.title} (索引: $currentPosition)")
+            
+            // 如果之前在播放，恢复播放
+            if (wasPlaying) {
+                exoPlayer.play()
+                android.util.Log.d(TAG, "恢复播放")
+                // 主动通知播放状态更新
+                notifyPlaybackStateChanged(true)
+            }
+        } else {
+            android.util.Log.e(TAG, "起始索引 $startIndex 超出歌曲列表范围 ${songs.size}")
         }
     }
 
@@ -510,10 +594,13 @@ class MusicPlayerService : android.app.Service() {
      * 初始化均衡器
      */
     fun setupEqualizer() {
+        // 如果已经初始化，不再重复初始化
+        if (isEqualizerEnabled) {
+            Log.d(TAG, "EQ均衡器已经初始化，跳过")
+            return
+        }
+        
         try {
-            // 释放旧的均衡器
-            releaseEqualizer()
-            
             // 创建新的均衡器
             val audioSessionId = exoPlayer.audioSessionId
             if (audioSessionId != 0) {
@@ -581,64 +668,90 @@ class MusicPlayerService : android.app.Service() {
     // ==================== 频谱可视化相关方法 ====================
 
     /**
-     * 初始化频谱可视化
+     * 初始化频谱可视化（从正在播放的音频流获取数据）
      */
     fun setupVisualizer() {
         // 如果已经初始化，不再重复初始化
-        if (isVisualizerEnabled || (audioAnalyzer != null && audioAnalyzer?.isRunning() == true)) {
+        if (isVisualizerEnabled) {
+            Log.d(TAG, "Visualizer已经初始化，跳过, 监听器数量: ${spectrumListeners.size}")
             return
         }
         
-        // 先尝试使用系统 Visualizer
+        // 使用系统 Visualizer API 从正在播放的音频会话获取频谱数据
         try {
             val audioSessionId = exoPlayer.audioSessionId
-            Log.d(TAG, "尝试初始化系统Visualizer，音频会话ID: $audioSessionId")
+            Log.d(TAG, "初始化系统Visualizer，音频会话ID: $audioSessionId, isPlaying: ${exoPlayer.isPlaying}")
             
-            if (audioSessionId != 0) {
-                visualizer = Visualizer(audioSessionId)
-                val captureSizes = Visualizer.getCaptureSizeRange()
-                visualizer?.captureSize = captureSizes[0]
-                
-                visualizer?.setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
-                    override fun onWaveFormDataCapture(visualizer: Visualizer?, waveform: ByteArray?, samplingRate: Int) {}
-
-                    override fun onFftDataCapture(visualizer: Visualizer?, fft: ByteArray?, samplingRate: Int) {
-                        fft?.let { rawData ->
-                            // Visualizer返回的数据格式是实部和虚部交替存储
-                            // 需要计算每个频率分量的幅度：sqrt(real^2 + imag^2)
-                            val magnitudeData = ByteArray(rawData.size / 2)
-                            for (i in magnitudeData.indices) {
-                                val real = rawData[i * 2].toInt() and 0xFF
-                                val imag = rawData[i * 2 + 1].toInt() and 0xFF
-                                val magnitude = Math.sqrt((real * real + imag * imag).toDouble()).toInt().toByte()
-                                magnitudeData[i] = magnitude
-                            }
-                            spectrumListener?.onSpectrumData(magnitudeData)
-                            floatingWindowManager?.updateSpectrum(magnitudeData)
-                        }
-                    }
-                }, Visualizer.getMaxCaptureRate() / 2, false, true)
-                
-                visualizer?.enabled = true
-                isVisualizerEnabled = true
-                Log.d(TAG, "系统Visualizer初始化成功")
+            if (audioSessionId == 0) {
+                Log.e(TAG, "音频会话ID为0，无法初始化Visualizer")
                 return
             }
-        } catch (e: Exception) {
-            Log.d(TAG, "系统Visualizer不可用，将使用AudioAnalyzer: ${e.message}")
-        }
-        
-        // 如果系统Visualizer失败，使用AudioAnalyzer
-        try {
-            audioAnalyzer = AudioAnalyzer()
-            audioAnalyzer?.setOnAudioDataListener { fftData ->
-                spectrumListener?.onSpectrumData(fftData)
-                floatingWindowManager?.updateSpectrum(fftData)
+
+            // 先释放旧的 Visualizer（如果存在）
+            if (visualizer != null) {
+                releaseVisualizer()
             }
-            audioAnalyzer?.start()
-            Log.d(TAG, "AudioAnalyzer初始化成功")
-        } catch (e: Exception) {
-            Log.e(TAG, "AudioAnalyzer初始化失败: ${e.message}")
+
+            visualizer = Visualizer(audioSessionId).apply {
+                // 设置捕获大小为最大值，以获取更丰富的频谱数据
+                val captureSizes = Visualizer.getCaptureSizeRange()
+                captureSize = captureSizes[1] // 使用最大捕获大小
+                Log.d(TAG, "Visualizer捕获大小: $captureSize (范围: ${captureSizes[0]}-${captureSizes[1]})")
+                
+                // 设置数据捕获监听器
+                setDataCaptureListener(
+                    object : Visualizer.OnDataCaptureListener {
+                        override fun onWaveFormDataCapture(
+                            visualizer: Visualizer?,
+                            waveform: ByteArray?,
+                            samplingRate: Int
+                        ) {
+                            // 不需要波形数据
+                        }
+
+                        override fun onFftDataCapture(
+                            visualizer: Visualizer?,
+                            fft: ByteArray?,
+                            samplingRate: Int
+                        ) {
+                            // FFT数据格式：偶数索引是实部，奇数索引是虚部
+                            // 直接将原始FFT数据发送给所有监听器
+                            fft?.let {
+                                // 添加日志：验证FFT数据长度和内容（只在有监听器时）
+                                if (spectrumListeners.isNotEmpty() && it.size >= 4) {
+                                    // 计算首个频率分量的幅度
+                                    val real0 = (it[2].toInt() and 0xFF) - 128
+                                    val imag0 = (it[3].toInt() and 0xFF) - 128
+                                    val mag0 = kotlin.math.sqrt((real0 * real0 + imag0 * imag0).toDouble())
+                                    
+                                    Log.v(TAG, "Visualizer FFT: len=${it.size}, mag=$mag0, playing=${exoPlayer.isPlaying}")
+                                }
+                                
+                                // 发送给所有频谱监听器
+                                spectrumListeners.forEach { listener ->
+                                    listener.onSpectrumData(it)
+                                }
+                                // 同时发送给悬浮窗管理器
+                                floatingWindowManager?.updateSpectrum(it)
+                            }
+                        }
+                    },
+                    Visualizer.getMaxCaptureRate() / 2,  // 更新频率
+                    false,  // 不捕获波形
+                    true    // 捕获FFT数据
+                )
+                
+                // 启用Visualizer
+                enabled = true
+                isVisualizerEnabled = true
+                Log.d(TAG, "系统Visualizer初始化成功，数据来自正在播放的音频流")
+            }
+
+        } catch (securityException: SecurityException) {
+            Log.e(TAG, "Visualizer权限被拒绝: ${securityException.message}")
+            // 如果没有权限，不显示频谱或使用模拟数据
+        } catch (exception: Exception) {
+            Log.e(TAG, "Visualizer初始化失败: ${exception.message}", exception)
         }
     }
 
@@ -649,10 +762,6 @@ class MusicPlayerService : android.app.Service() {
         visualizer?.enabled = false
         visualizer?.release()
         visualizer = null
-        
-        audioAnalyzer?.stop()
-        audioAnalyzer = null
-        
         isVisualizerEnabled = false
         Log.d(TAG, "频谱可视化已释放")
     }

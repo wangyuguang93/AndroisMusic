@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/menu_edit"
+        android:title="编辑歌曲信息"
+        android:icon="@drawable/ic_edit" />
+    <item
+        android:id="@+id/menu_detail"
+        android:title="歌曲详情"
+        android:icon="@drawable/ic_info" />
+    <item
+        android:id="@+id/menu_delete"
+        android:title="删除歌曲"
+        android:icon="@drawable/ic_delete" />
+    <item
+        android:id="@+id/menu_remove"
+        android:title="移除播放列表"
+        android:icon="@drawable/ic_remove" />
+</menu>

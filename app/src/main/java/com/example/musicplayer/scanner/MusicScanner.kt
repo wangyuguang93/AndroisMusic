@@ -119,6 +119,14 @@ class MusicScanner(private val context: Context, private val coroutineScope: Cor
                     // 获取专辑封面URI
                     val albumArtUri = Uri.parse("content://media/external/audio/albumart/$albumId")
 
+                    // 获取文件大小
+                    val fileSize = try {
+                        val file = java.io.File(path)
+                        if (file.exists()) file.length() else 0L
+                    } catch (e: Exception) {
+                        0L
+                    }
+
                     // 创建Song对象并添加到列表
                     val song = Song(
                         id = id,
@@ -128,7 +136,8 @@ class MusicScanner(private val context: Context, private val coroutineScope: Cor
                         duration = finalDuration,
                         path = path,
                         uri = Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString()),
-                        albumArtUri = albumArtUri
+                        albumArtUri = albumArtUri,
+                        fileSize = fileSize
                     )
                     songList.add(song)
                 }

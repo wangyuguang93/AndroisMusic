@@ -1,7 +1,10 @@
 package com.example.musicplayer.ui.adapter
 
+import android.app.AlertDialog
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import android.widget.PopupMenu
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -13,7 +16,11 @@ import com.example.musicplayer.model.Song
 
 class SongAdapter(
     private val onSongClick: (Song) -> Unit,
-    private val onItemMove: (fromPosition: Int, toPosition: Int) -> Unit
+    private val onItemMove: (fromPosition: Int, toPosition: Int) -> Unit,
+    private val onEditSong: (Song) -> Unit,
+    private val onViewDetail: (Song) -> Unit,
+    private val onDeleteSong: (Song) -> Unit,
+    private val onRemoveFromPlaylist: (Song) -> Unit
 ) : ListAdapter<Song, SongAdapter.SongViewHolder>(SongDiffCallback()) {
     
     private var currentSongId: Long = -1
@@ -21,6 +28,7 @@ class SongAdapter(
 
     inner class SongViewHolder(private val binding: ItemSongBinding) : RecyclerView.ViewHolder(binding.root) {
         init {
+            // 歌曲点击事件
             itemView.setOnClickListener {
                 val position = adapterPosition
                 if (position != RecyclerView.NO_POSITION) {
@@ -28,11 +36,62 @@ class SongAdapter(
                     onSongClick(song)
                 }
             }
+
+            // 菜单按钮点击事件
+            binding.btnMore.setOnClickListener {
+                val position = adapterPosition
+                if (position != RecyclerView.NO_POSITION) {
+                    val song = getItem(position)
+                    showPopupMenu(binding.btnMore, song)
+                }
+            }
+        }
+
+        private fun showPopupMenu(view: View, song: Song) {
+            val popupMenu = PopupMenu(view.context, view)
+            popupMenu.menuInflater.inflate(R.menu.song_item_menu, popupMenu.menu)
+            
+            popupMenu.setOnMenuItemClickListener { menuItem ->
+                when (menuItem.itemId) {
+                    R.id.menu_edit -> {
+                        onEditSong(song)
+                        true
+                    }
+                    R.id.menu_detail -> {
+                        onViewDetail(song)
+                        true
+                    }
+                    R.id.menu_delete -> {
+                        showDeleteConfirmDialog(song)
+                        true
+                    }
+                    R.id.menu_remove -> {
+                        onRemoveFromPlaylist(song)
+                        true
+                    }
+                    else -> false
+                }
+            }
+            popupMenu.show()
+        }
+
+        private fun showDeleteConfirmDialog(song: Song) {
+            AlertDialog.Builder(itemView.context)
+                .setTitle("删除歌曲")
+                .setMessage("确定要删除这首歌曲吗？")
+                .setPositiveButton("确定") { _, _ ->
+                    onDeleteSong(song)
+                }
+                .setNegativeButton("取消", null)
+                .show()
         }
 
         fun bind(song: Song, isCurrentSong: Boolean) {
             binding.tvSongTitle.text = song.title
             binding.tvArtist.text = song.artist
+            
+            // 显示歌曲时长
+            binding.tvDuration.text = formatDuration(song.duration)
             
             if (isCurrentSong) {
                 binding.root.setBackgroundColor(ContextCompat.getColor(binding.root.context, R.color.playing_pink))
@@ -46,6 +105,12 @@ class SongAdapter(
                 .error(R.drawable.ic_music_placeholder)
                 .fallback(R.drawable.ic_music_placeholder)
                 .into(binding.ivAlbumArt)
+        }
+
+        private fun formatDuration(duration: Long): String {
+            val minutes = (duration / 1000) / 60
+            val seconds = (duration / 1000) % 60
+            return String.format("%02d:%02d", minutes, seconds)
         }
     }
 
@@ -85,6 +150,8 @@ class SongAdapter(
     override fun submitList(list: List<Song>?) {
         super.submitList(list)
         currentList = list ?: emptyList()
+        // 强制刷新，确保列表更新
+        notifyDataSetChanged()
     }
 
     private class SongDiffCallback : DiffUtil.ItemCallback<Song>() {

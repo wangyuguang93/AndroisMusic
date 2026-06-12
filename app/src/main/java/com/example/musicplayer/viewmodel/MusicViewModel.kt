@@ -28,6 +28,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val isLoading: LiveData<Boolean> = _isLoading
 
     private val _currentSong = MutableLiveData<Song?>(null)
+    
+    // 添加实例ID用于调试
+    private val instanceId = System.identityHashCode(this)
+    
+    init {
+        android.util.Log.d("MusicViewModel", "创建 ViewModel 实例，ID: $instanceId")
+    }
     val currentSong: LiveData<Song?> = _currentSong
 
     private val _isPlaying = MutableLiveData<Boolean>(false)
@@ -64,7 +71,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             musicPlayerService = binder.service
             isServiceBound = true
             
-            musicPlayerService?.setPlayerStateListener(object : MusicPlayerService.PlayerStateListener {
+            musicPlayerService?.addPlayerStateListener(object : MusicPlayerService.PlayerStateListener {
                 override fun onCurrentSongChanged(song: Song?) {
                     _currentSong.postValue(song)
                     // 使用歌曲对象的时长属性，更可靠
@@ -115,10 +122,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         startAndBindService()
     }
 
+    // 标志位：表示刚刚完成扫描，避免 loadMusic() 覆盖扫描结果
+    private var justScanned = false
+    
+    fun setJustScanned(value: Boolean) {
+        justScanned = value
+    }
+    
     fun startLoadMusic() {
         loadMusic()
     }
-
+    
     private fun startAndBindService() {
         val application = getApplication<Application>()
         val intent = Intent(application, MusicPlayerService::class.java)
@@ -134,6 +148,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadMusic() {
         android.util.Log.d("MusicViewModel", "loadMusic() 方法被调用")
+        
+        // 如果刚刚完成扫描，跳过加载，避免覆盖扫描结果
+        if (justScanned) {
+            android.util.Log.d("MusicViewModel", "刚刚完成扫描，跳过 loadMusic()")
+            justScanned = false  // 重置标志位
+            return
+        }
+        
         _isLoading.value = true
         viewModelScope.launch {
             try {
@@ -176,21 +198,24 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val scannedMap = scanned.associateBy { it.id }
         val scannedIds = scanned.map { it.id }.toSet()
         
-        // 先按保存的ID顺序排列已存在的歌曲
+        // 先按保存的ID顺序排列已存在的歌曲，使用 distinctBy 去重
         val reordered = savedIds.mapNotNull { id -> 
             if (scannedIds.contains(id)) {
                 scannedMap[id]
             } else {
                 null
             }
-        }
+        }.distinctBy { it.id }  // 按ID去重
         
         // 添加所有不在保存列表中的新歌（保持原有顺序）
         val newSongs = scanned.filter { !savedIds.contains(it.id) }
         
-        android.util.Log.d("MusicViewModel", "reorderSongsBySavedIds: 保存列表中匹配 ${reordered.size} 首，新增 ${newSongs.size} 首")
+        // 合并后再次去重（处理路径大小写问题）
+        val combined = (reordered + newSongs).distinctBy { it.path.lowercase() }
         
-        return reordered + newSongs
+        android.util.Log.d("MusicViewModel", "reorderSongsBySavedIds: 保存列表中匹配 ${reordered.size} 首，新增 ${newSongs.size} 首，去重后 ${combined.size} 首")
+        
+        return combined
     }
 
     private fun restorePlaybackState(songs: List<Song>) {
@@ -252,6 +277,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
             _filteredSongs.postValue(filtered)
         }
+    }
+
+    /**
+     * 更新歌曲列表（用于删除或移除歌曲后更新UI）
+     */
+    fun updateSongList(newSongs: List<Song>) {
+        _songs.postValue(newSongs)
+        _filteredSongs.postValue(newSongs)
     }
 
     fun playSong(song: Song, songs: List<Song>) {
@@ -419,11 +452,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     
     // 菜单触发的扫描：只使用文件系统遍历（最多5层）
     fun scanFromMenu() {
+        android.util.Log.d("MusicViewModel", "scanFromMenu() 调用，ViewModel ID: $instanceId")
         _isLoading.value = true
         _scanProgress.value = 0
         _scanCurrentDir.value = "准备扫描..."
         
-        // 创建临时列表来存储扫描过程中发现的歌曲
+        // 创建临时列表来存储扫描过程中发现的歌曲（用于实时更新UI）
         val tempSongs = mutableListOf<Song>()
         
         viewModelScope.launch {
@@ -436,27 +470,92 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             _scanProgress.postValue(progress)
                         }
                         _scanCurrentDir.postValue(currentDir)
-                        // 实时更新发现的歌曲数量显示
-                        _songs.postValue(tempSongs.toList())
+                        // 实时更新发现的歌曲数量显示（只更新计数，不更新列表）
+                        android.util.Log.d("MusicViewModel", "扫描进度：$progress%, 目录：$currentDir, 已发现：$foundCount 首")
                     }
                 })
                 
-                // 只使用文件系统遍历扫描（最多5层深度），并传递临时列表用于实时更新
+                // 使用文件系统扫描方式（支持临时列表实时更新）
                 val scannedSongs = musicScanner.scanWithRefreshFileOnly(tempSongs)
+                
+                android.util.Log.d("MusicViewModel", "扫描完成，发现 ${scannedSongs.size} 首歌曲，ViewModel ID: $instanceId")
+                android.util.Log.d("MusicViewModel", "临时列表歌曲数：${tempSongs.size}")
+                
+                // 扫描完成后，用去重排序后的结果更新临时列表（避免重复）
+                tempSongs.clear()
+                tempSongs.addAll(scannedSongs)
+                android.util.Log.d("MusicViewModel", "临时列表已更新为去重结果，歌曲数: ${tempSongs.size}")
                 
                 // 尝试加载保存的歌曲ID列表
                 val finalSongs = if (playbackStateStorage.hasSavedSongList()) {
                     val savedSongIds = playbackStateStorage.getSavedSongIds()
-                    reorderSongsBySavedIds(scannedSongs, savedSongIds)
+                    android.util.Log.d("MusicViewModel", "保存的歌曲ID数量: ${savedSongIds.size}")
+                    val reordered = reorderSongsBySavedIds(scannedSongs, savedSongIds)
+                    android.util.Log.d("MusicViewModel", "重新排序后歌曲数: ${reordered.size}")
+                    reordered
                 } else {
+                    android.util.Log.d("MusicViewModel", "没有保存的歌曲列表，使用扫描结果")
                     scannedSongs
                 }
                 
-                _songs.postValue(finalSongs)
-                _filteredSongs.postValue(finalSongs)
+                android.util.Log.d("MusicViewModel", "更新歌曲列表，最终歌曲数: ${finalSongs.size}，ViewModel ID: $instanceId")
+                
+                // 打印最终歌曲列表（用于调试重复问题）
+                android.util.Log.d("MusicViewModel", "========== 最终歌曲列表 ==========")
+                for ((index, song) in finalSongs.withIndex()) {
+                    // 打印所有歌曲的名称和路径
+                    android.util.Log.d("MusicViewModel", "[$index] ${song.title} - ${song.artist} | ${song.path}")
+                }
+                android.util.Log.d("MusicViewModel", "========== 歌曲列表结束 ==========")
+                
+                // 使用 setValue 而不是 postValue，确保同步更新
+                _songs.value = finalSongs
+                _filteredSongs.value = finalSongs
+                
+                // 设置标志位，表示刚刚完成扫描，避免 loadMusic() 覆盖扫描结果
+                justScanned = true
+                android.util.Log.d("MusicViewModel", "已设置 justScanned = true")
+                
+                // 延迟检查 LiveData 值
+                android.util.Log.d("MusicViewModel", "已更新 LiveData，songs.size: ${_songs.value?.size}")
+                
+                // 更新播放器的媒体列表，确保扫描到的歌曲能在播放器中使用
+                android.util.Log.d("MusicViewModel", "检查服务绑定状态: isServiceBound=$isServiceBound, musicPlayerService=$musicPlayerService")
+                if (isServiceBound && musicPlayerService != null) {
+                    // 获取当前播放歌曲在新列表中的位置
+                    val currentIndex = if (_currentSong.value != null) {
+                        val index = finalSongs.indexOfFirst { it.id == _currentSong.value?.id }
+                        android.util.Log.d("MusicViewModel", "当前歌曲ID: ${_currentSong.value?.id}, 在新列表中的位置: $index")
+                        index
+                    } else {
+                        android.util.Log.d("MusicViewModel", "没有当前播放歌曲，从索引0开始")
+                        0
+                    }
+                    
+                    if (currentIndex >= 0 && currentIndex < finalSongs.size) {
+                        // 更新播放器媒体列表，保持当前歌曲位置
+                        android.util.Log.d("MusicViewModel", "调用 setMediaItems，歌曲数: ${finalSongs.size}, 当前索引: $currentIndex")
+                        musicPlayerService?.setMediaItems(finalSongs, currentIndex)
+                        android.util.Log.d("MusicViewModel", "播放器媒体列表已更新，当前索引: $currentIndex")
+                    } else {
+                        // 如果当前歌曲不在新列表中，从头开始
+                        android.util.Log.d("MusicViewModel", "当前歌曲不在新列表中，从索引0开始")
+                        musicPlayerService?.setMediaItems(finalSongs, 0)
+                        android.util.Log.d("MusicViewModel", "播放器媒体列表已更新，当前歌曲不在新列表中，从索引0开始")
+                    }
+                    
+                    // 验证播放器服务中的歌曲列表
+                    android.util.Log.d("MusicViewModel", "验证播放器服务中的歌曲列表...")
+                    // 注意：这里无法直接访问 service 的 songList，只能通过日志验证
+                } else {
+                    android.util.Log.e("MusicViewModel", "服务未绑定或为空，无法更新播放器媒体列表")
+                }
+                
                 _scanCurrentDir.postValue("扫描完成")
             } catch (e: Exception) {
-                e.printStackTrace()
+                android.util.Log.e("MusicViewModel", "扫描失败: ${e.message}", e)
+                // 异常时清空临时列表，避免显示错误数据
+                tempSongs.clear()
                 _scanCurrentDir.postValue("扫描失败")
             } finally {
                 _isLoading.postValue(false)

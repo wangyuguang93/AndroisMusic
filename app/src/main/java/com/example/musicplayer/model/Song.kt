@@ -11,5 +11,6 @@ data class Song(
     val duration: Long,
     val path: String,
     val uri: Uri,
-    val albumArtUri: Uri? = null
+    val albumArtUri: Uri? = null,
+    val fileSize: Long = 0
 )
