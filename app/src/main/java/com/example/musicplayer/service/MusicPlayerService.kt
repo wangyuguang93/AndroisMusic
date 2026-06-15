@@ -111,6 +111,10 @@ class MusicPlayerService : android.app.Service() {
         spectrumListeners.clear()
         listener?.let {
             spectrumListeners.add(it)
+            // 添加监听器后，如果Visualizer还没初始化，尝试初始化
+            if (!isVisualizerEnabled && ::exoPlayer.isInitialized) {
+                setupVisualizer()
+            }
         }
     }
 
