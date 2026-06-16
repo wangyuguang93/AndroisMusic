@@ -129,6 +129,11 @@ public class PlayDetailActivity extends AppCompatActivity {
             } else {
                 stopDiscRotation();
             }
+
+            // 控制频谱播放状态
+            if (spectrumView != null) {
+                spectrumView.setPlaying(isPlaying);
+            }
         });
 
         musicViewModel.getCurrentSong().observe(this, song -> {

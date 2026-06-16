@@ -105,6 +105,15 @@ public class FloatingWindowManager {
     }
 
     /**
+     * 设置播放状态
+     */
+    public void setPlaying(boolean playing) {
+        if (spectrumViewFloating != null) {
+            spectrumViewFloating.setPlaying(playing);
+        }
+    }
+
+    /**
      * 更新频谱数据
      */
     public void updateSpectrum(byte[] data) {

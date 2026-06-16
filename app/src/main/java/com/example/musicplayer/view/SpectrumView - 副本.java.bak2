@@ -1,0 +1,328 @@
+package com.example.musicplayer.view;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Shader;
+import android.util.AttributeSet;
+import android.util.Log;
+import android.view.View;
+
+public class SpectrumView extends View {
+    // 柱子数量：8低音 + 16中音 + 8高音
+    private static final int BASS_BAR_NUM = 8;
+    private static final int MID_BAR_NUM = 16;
+    private static final int TREBLE_BAR_NUM = 8;
+    private final int TOTAL_BARS = BASS_BAR_NUM + MID_BAR_NUM + TREBLE_BAR_NUM;
+
+    // 音频参数
+    private static final float SAMPLE_RATE = 44100.0f;
+    private static final int MAX_VALID_BIN = 512;
+
+    // 频段划分
+    private static final float FREQ_BASS_MIN = 20.0f;
+    private static final float FREQ_BASS_MAX = 400.0f;
+    private static final float FREQ_MID_MAX = 2500.0f;
+    private static final float FREQ_TREBLE_MAX = 16000.0f;
+
+    // 高频截断（默认开启，彻底解决高音固定信号栏）
+    private static final boolean CUT_OFF_HIGH_FREQ = true;
+    private static final float CUT_FREQ = 2500.0f;
+
+    // 高度配置
+    private static final float HEIGHT_BASE = 0.01f;
+    private static final float HEIGHT_MAX = 0.85f;
+    private static final float TREBLE_MAX_HEIGHT = 0.22f;
+
+    // 动画平滑
+    private static final float SMOOTH_RISE = 0.48f;
+    private static final float SMOOTH_FALL = 0.65f;
+    private static final float DECAY_RATE = 0.86f;
+
+    // 频段增益
+    private static final float GAIN_BASS = 3.3f;
+    private static final float GAIN_MID = 35.0f;
+    private static final float GAIN_TREBLE = 1.2f;
+
+    // 全局缩放
+    private static final float AMP_SCALE = 0.0043f;
+
+    // 底噪阈值
+    private static final float BASS_NOISE_THRESHOLD = 7f;
+    private static final float TREBLE_NOISE_THRESHOLD = 8.0f;
+
+    // 绘制
+    private final Paint mPaint;
+    private LinearGradient mGradient;
+    private static final int COLOR_TOP = Color.parseColor("#EA40A4");
+    private static final int COLOR_BOTTOM = Color.parseColor("#42A5F5");
+    private float mBarWidth;
+    private final float mBarGap = 3f;
+
+    // 高度缓存
+    private float[] mCurrentHeight;
+    private float[] mPrevHeight;
+    private boolean mIsPlaying;
+    private static final String TAG = "SPEC_LOG";
+
+    public SpectrumView(Context context) {
+        super(context);
+        mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        initData();
+    }
+
+    public SpectrumView(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        initData();
+    }
+
+    public SpectrumView(Context context, AttributeSet attrs, int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
+        mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        initData();
+    }
+
+    private void initData() {
+        mPaint.setStyle(Paint.Style.FILL);
+        mCurrentHeight = new float[TOTAL_BARS];
+        mPrevHeight = new float[TOTAL_BARS];
+        for (int i = 0; i < TOTAL_BARS; i++) {
+            mCurrentHeight[i] = HEIGHT_BASE;
+            mPrevHeight[i] = HEIGHT_BASE;
+        }
+        mIsPlaying = false;
+        Log.d(TAG, "视图初始化完成，总柱数:" + TOTAL_BARS);
+    }
+
+    public void setPlaying(boolean playing) {
+        this.mIsPlaying = playing;
+        Log.d(TAG, "播放状态切换:" + playing);
+    }
+
+    public void resetToBase() {
+        for (int i = 0; i < TOTAL_BARS; i++) {
+            mCurrentHeight[i] = HEIGHT_BASE;
+            mPrevHeight[i] = HEIGHT_BASE;
+        }
+        invalidate();
+        Log.d(TAG, "全部柱子重置基线");
+    }
+
+    public void onFftDataReceived(byte[] fftRaw) {
+        if (!mIsPlaying || fftRaw == null || fftRaw.length < 2) {
+            slowDecay();
+            invalidate();
+            return;
+        }
+
+        int totalRawBinCount = fftRaw.length / 2;
+        int useBinCount = Math.min(totalRawBinCount, MAX_VALID_BIN);
+        if (useBinCount < 4) {
+            slowDecay();
+            invalidate();
+            return;
+        }
+
+        float[] magArray = calcMagnitudeWithWindow(fftRaw, useBinCount);
+        float freqStep = SAMPLE_RATE / useBinCount;
+        int barIndex = 0;
+
+        // 低音区 20 ~ 400Hz
+        int bassBinStart = freqToBin(FREQ_BASS_MIN, freqStep);
+        int bassBinEnd = freqToBin(FREQ_BASS_MAX, freqStep, useBinCount);
+        Log.d(TAG, "【低音】Bin范围:" + bassBinStart + " ~ " + bassBinEnd);
+        mapBassRange(magArray, bassBinStart, bassBinEnd, barIndex, BASS_BAR_NUM);
+        barIndex += BASS_BAR_NUM;
+
+        // 中音区 400 ~ 2500Hz
+        int midBinStart = bassBinEnd + 1;
+        int midBinEnd = freqToBin(FREQ_MID_MAX, freqStep, useBinCount);
+        Log.d(TAG, "【中音】Bin范围:" + midBinStart + " ~ " + midBinEnd);
+        mapMidRange(magArray, midBinStart, midBinEnd, barIndex, MID_BAR_NUM);
+        barIndex += MID_BAR_NUM;
+
+        // 高音区：默认截断高频，消除固定信号栏
+        int trebleBinStart = midBinEnd + 1;
+        if (CUT_OFF_HIGH_FREQ) {
+            fillBaseBar(barIndex, TREBLE_BAR_NUM);
+        } else {
+            int trebleBinEnd = freqToBin(FREQ_TREBLE_MAX, freqStep, useBinCount);
+            Log.d(TAG, "【高音】Bin范围:" + trebleBinStart + " ~ " + trebleBinEnd);
+            mapTreRange(magArray, trebleBinStart, trebleBinEnd, barIndex, TREBLE_BAR_NUM);
+        }
+
+        invalidate();
+    }
+
+    /** FFT幅值 + 窗函数计算 */
+    private float[] calcMagnitudeWithWindow(byte[] fftBytes, int binCount) {
+        float[] mag = new float[binCount];
+        for (int k = 0; k < binCount; k++) {
+            int realIdx = k * 2;
+            int imagIdx = k * 2 + 1;
+            int re = (fftBytes[realIdx] & 0xFF) - 128;
+            int im = (fftBytes[imagIdx] & 0xFF) - 128;
+            float amp = (float) Math.hypot(re, im);
+
+            float windowCoef = k <= 4 ? 1.0f : 0.5f * (1f - (float) Math.cos(2 * Math.PI * k / (binCount - 1)));
+            mag[k] = amp * windowCoef;
+        }
+        return mag;
+    }
+
+    /** 频率转Bin下标 */
+    private int freqToBin(float freq, float freqRes) {
+        return (int) (freq / freqRes);
+    }
+
+    private int freqToBin(float freq, float freqRes, int maxBin) {
+        int bin = (int) (freq / freqRes);
+        return Math.min(Math.max(0, bin), maxBin - 1);
+    }
+
+    /** 低音区映射 */
+    private void mapBassRange(float[] mag, int binS, int binE, int barStartIdx, int barCount) {
+        if (binE <= binS) {
+            fillBaseBar(barStartIdx, barCount);
+            return;
+        }
+        float binTotalSpan = binE - binS;
+        float binStepPerBar = binTotalSpan / (barCount - 1f);
+        for (int bar = 0; bar < barCount; bar++) {
+            float pos = binS + bar * binStepPerBar;
+            int b0 = (int) Math.floor(pos);
+            int b1 = Math.min(b0 + 1, binE);
+            float blend = pos - b0;
+            float rawAmp = mag[b0] * (1f - blend) + mag[b1] * blend;
+
+            float targetHeight;
+            if (rawAmp < BASS_NOISE_THRESHOLD) {
+                targetHeight = HEIGHT_BASE;
+            } else {
+                float boostedAmp = (float) Math.pow(rawAmp, 0.65f);
+                targetHeight = boostedAmp * AMP_SCALE * GAIN_BASS;
+            }
+            targetHeight = Math.max(HEIGHT_BASE, Math.min(targetHeight, HEIGHT_MAX));
+            // 修复：变量名 target -> targetHeight
+            smoothUpdateHeight(barStartIdx + bar, targetHeight);
+        }
+    }
+
+    /** 中音区映射 */
+    private void mapMidRange(float[] mag, int binS, int binE, int barStartIdx, int barCount) {
+        if (binE <= binS) {
+            fillBaseBar(barStartIdx, barCount);
+            return;
+        }
+        int totalMidBin = binE - binS + 1;
+        float binPerBar = (float) totalMidBin / barCount;
+        for (int bar = 0; bar < barCount; bar++) {
+            int segStart = binS + (int) (bar * binPerBar);
+            int segEnd = binS + (int) ((bar + 1) * binPerBar);
+            if (bar == barCount - 1) segEnd = binE;
+            segEnd = Math.max(segStart, segEnd);
+
+            float maxAmp = 0f;
+            for (int b = segStart; b <= segEnd; b++) {
+                maxAmp = Math.max(maxAmp, mag[b]);
+            }
+
+            float targetHeight = maxAmp * AMP_SCALE * GAIN_MID;
+            targetHeight = Math.max(HEIGHT_BASE, Math.min(targetHeight, HEIGHT_MAX));
+            smoothUpdateHeight(barStartIdx + bar, targetHeight);
+        }
+    }
+
+    /** 高音区映射（仅关闭截断时生效） */
+    private void mapTreRange(float[] mag, int binS, int binE, int barStartIdx, int barCount) {
+        if (binE <= binS) {
+            fillBaseBar(barStartIdx, barCount);
+            return;
+        }
+        int totalTreBin = binE - binS;
+        int binPerBar = Math.max(1, totalTreBin / barCount);
+        for (int bar = 0; bar < barCount; bar++) {
+            int segStart = binS + bar * binPerBar;
+            int segEnd = (bar == barCount - 1) ? binE : segStart + binPerBar - 1;
+            float maxAmp = 0f;
+            for (int b = segStart; b <= segEnd; b++) {
+                maxAmp = Math.max(maxAmp, mag[b]);
+            }
+
+            float targetHeight;
+            if (maxAmp < TREBLE_NOISE_THRESHOLD) {
+                targetHeight = HEIGHT_BASE;
+            } else {
+                float logAmp = (float) Math.log10(maxAmp + 1f) * 18f;
+                targetHeight = logAmp * AMP_SCALE * GAIN_TREBLE;
+            }
+            targetHeight = Math.max(HEIGHT_BASE, Math.min(targetHeight, TREBLE_MAX_HEIGHT));
+            smoothUpdateHeight(barStartIdx + bar, targetHeight);
+        }
+    }
+
+    /** 单柱高度平滑更新 */
+    private void smoothUpdateHeight(int idx, float targetH) {
+        float prevH = mPrevHeight[idx];
+        float newH;
+        if (targetH > prevH) {
+            // 修复：prev -> prevH
+            newH = prevH * (1f - SMOOTH_RISE) + targetH;
+        } else {
+            float diff = prevH - targetH;
+            float fallMod = SMOOTH_FALL + (1f - targetH / HEIGHT_MAX) * 0.12f;
+            newH = prevH - diff * fallMod;
+        }
+        newH = Math.max(HEIGHT_BASE, newH);
+        mCurrentHeight[idx] = newH;
+        mPrevHeight[idx] = newH;
+    }
+
+    /** 暂停/静音 缓慢衰减 */
+    private void slowDecay() {
+        for (int i = 0; i < TOTAL_BARS; i++) {
+            float val = mCurrentHeight[i] * DECAY_RATE;
+            mCurrentHeight[i] = Math.max(val, HEIGHT_BASE);
+            mPrevHeight[i] = mCurrentHeight[i];
+        }
+    }
+
+    /** 批量置基线 */
+    private void fillBaseBar(int startIdx, int count) {
+        for (int i = 0; i < count; i++) {
+            smoothUpdateHeight(startIdx + i, HEIGHT_BASE);
+        }
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        if (TOTAL_BARS <= 0 || w <= 0) return;
+
+        float totalGapWidth = mBarGap * (TOTAL_BARS - 1);
+        float usableWidth = w - totalGapWidth;
+        mBarWidth = usableWidth / TOTAL_BARS;
+
+        mGradient = new LinearGradient(0f, 0f, 0f, (float) h,
+                COLOR_TOP, COLOR_BOTTOM, Shader.TileMode.CLAMP);
+        mPaint.setShader(mGradient);
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        int viewFullHeight = getHeight();
+        float drawX = 0f;
+        for (int i = 0; i < TOTAL_BARS; i++) {
+            float hRatio = Math.max(HEIGHT_BASE, Math.min(mCurrentHeight[i], HEIGHT_MAX));
+            float realBarHeight = hRatio * viewFullHeight;
+            float topY = viewFullHeight - realBarHeight;
+            // 修复：补充 mPaint 参数
+            canvas.drawRect(drawX, topY, drawX + mBarWidth, viewFullHeight, mPaint);
+            drawX += mBarWidth + mBarGap;
+        }
+    }
+}

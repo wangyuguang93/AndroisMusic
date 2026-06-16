@@ -1,0 +1,202 @@
+package com.example.musicplayer.view;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Shader;
+import android.util.AttributeSet;
+import android.view.View;
+
+public class SpectrumView extends View {
+    private final Paint mPaint;
+    private LinearGradient mBarGradient;
+
+    private int mBarCount = 32;
+    private float mBarWidth;
+    private float mBarSpacing;
+
+    private float[] mCurrentHeights;
+    private float[] mPrevHeights;
+    private boolean mIsPlaying;
+
+    private static final float SMOOTH_FACTOR = 0.52f;
+    private static final float DROP_FACTOR = 0.38f;
+    private static final float BASE_LINE = 0.002f;
+    private static final float MAX_HEIGHT_RATIO = 0.7f;
+    private static final float AMPLIFY = 0.65f;
+    private static final float PLAY_SILENT_THRESHOLD = 0.4f;
+    private static final float LOW_VOLUME_THRESHOLD = 3f;
+
+    private static final int COLOR_BOTTOM = Color.parseColor("#42A5F5");
+    private static final int COLOR_TOP = Color.parseColor("#EA40A4");
+
+    public SpectrumView(Context context) {
+        super(context);
+        mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        initView();
+    }
+
+    public SpectrumView(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        initView();
+    }
+
+    public SpectrumView(Context context, AttributeSet attrs, int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
+        mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        initView();
+    }
+
+    private void initView() {
+        mPaint.setStyle(Paint.Style.FILL);
+        mCurrentHeights = new float[mBarCount];
+        mPrevHeights = new float[mBarCount];
+        for (int i = 0; i < mBarCount; i++) {
+            mCurrentHeights[i] = BASE_LINE;
+            mPrevHeights[i] = BASE_LINE;
+        }
+    }
+
+    /** 手动一键清空柱子（暂停时可选调用，不调用也会自动衰减） */
+    public void resetAllToBase() {
+        for (int i = 0; i < mBarCount; i++) {
+            mCurrentHeights[i] = BASE_LINE;
+            mPrevHeights[i] = BASE_LINE;
+        }
+        invalidate();
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        if (mBarCount <= 0) return;
+        mBarSpacing = 3f;
+        float totalUseWidth = w - (mBarSpacing * (mBarCount - 1));
+        mBarWidth = totalUseWidth / mBarCount;
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        int viewHeight = getHeight();
+        float currentX = 0f;
+
+        for (int i = 0; i < mBarCount; i++) {
+            float ratio = mCurrentHeights[i];
+            ratio = Math.max(ratio, BASE_LINE);
+            ratio = Math.min(ratio, MAX_HEIGHT_RATIO);
+
+            float barH = ratio * viewHeight;
+            float topY = viewHeight - barH;
+            float bottomY = viewHeight;
+
+            mBarGradient = new LinearGradient(0, topY, 0, bottomY, COLOR_TOP, COLOR_BOTTOM, Shader.TileMode.CLAMP);
+            mPaint.setShader(mBarGradient);
+            canvas.drawRect(currentX, topY, currentX + mBarWidth, bottomY, mPaint);
+            currentX += mBarWidth + mBarSpacing;
+        }
+        mPaint.setShader(null);
+    }
+
+    public void setPlaying(boolean playing) {
+        mIsPlaying = playing;
+    }
+
+    // 无播放状态拦截，有FFT数据就正常渲染频谱
+    public void updateSpectrum(byte[] fftData) {
+        if (fftData == null || fftData.length < 8) {
+            softDecay();
+            invalidate();
+            return;
+        }
+
+        int totalBinCount = fftData.length / 2;
+        if (totalBinCount <= 1) {
+            softDecay();
+            invalidate();
+            return;
+        }
+
+        float[] energyArr = new float[totalBinCount];
+        float totalEnergy = 0f;
+
+        // 完整读取全部FFT频点，无频段裁剪
+        for (int bin = 0; bin < totalBinCount; bin++) {
+            int idxReal = bin * 2;
+            int idxImag = bin * 2 + 1;
+            int r = (fftData[idxReal] & 0xFF) - 128;
+            int i = (fftData[idxImag] & 0xFF) - 128;
+            float mag = (float) Math.hypot(r, i);
+            energyArr[bin] = mag;
+            totalEnergy += mag;
+        }
+
+        float avgEnergy = totalEnergy / totalBinCount;
+        // 仅极弱底噪衰减，正常音乐完整展示振幅
+        if (avgEnergy < PLAY_SILENT_THRESHOLD) {
+            softDecay();
+            invalidate();
+            return;
+        }
+
+        mapFullLinearRealAudio(energyArr, totalBinCount, avgEnergy);
+        invalidate();
+    }
+
+    // 纯线性全频映射，高度完全跟随歌曲频率振幅
+    private void mapFullLinearRealAudio(float[] energyArr, int binTotal, float avgEnergy) {
+        for (int bar = 0; bar < mBarCount; bar++) {
+            float percent = (float) bar / (mBarCount - 1);
+            float binPos = percent * (binTotal - 1);
+            int binIdx = Math.round(binPos);
+            binIdx = Math.max(0, Math.min(binIdx, binTotal - 1));
+
+            float rawMag = energyArr[binIdx];
+            float boostedMag = (float) Math.pow(rawMag / 100f, 1.7f) * 100f;
+
+            float fade = 1f;
+            if (percent < 0.08f) fade = 0.93f;
+            if (percent > 0.92f) fade = 0.89f;
+
+            float volScale = avgEnergy < LOW_VOLUME_THRESHOLD ? 0.7f : 1f;
+            float targetHeight = boostedMag * fade * volScale * AMPLIFY / 256f;
+            targetHeight = Math.max(BASE_LINE, Math.min(targetHeight, MAX_HEIGHT_RATIO));
+
+            float prev = mPrevHeights[bar];
+            float newH;
+            if (targetHeight > prev) {
+                newH = prev * (1f - SMOOTH_FACTOR) + targetHeight * SMOOTH_FACTOR;
+            } else {
+                newH = prev * DROP_FACTOR * (1f - SMOOTH_FACTOR) + targetHeight * SMOOTH_FACTOR;
+            }
+
+            mCurrentHeights[bar] = newH;
+            mPrevHeights[bar] = newH;
+        }
+    }
+
+    // 空白间隙缓慢回落
+    private void softDecay() {
+        float dropSpeed = 0.35f;
+        for (int i = 0; i < mBarCount; i++) {
+            float val = mCurrentHeights[i] * dropSpeed;
+            mCurrentHeights[i] = Math.max(val, BASE_LINE);
+            mPrevHeights[i] = BASE_LINE;
+        }
+    }
+
+    public void setBarCount(int count) {
+        if (count < 4) return;
+        mBarCount = count;
+        mCurrentHeights = new float[mBarCount];
+        mPrevHeights = new float[mBarCount];
+        for (int i = 0; i < mBarCount; i++) {
+            mCurrentHeights[i] = BASE_LINE;
+            mPrevHeights[i] = BASE_LINE;
+        }
+        requestLayout();
+    }
+}

@@ -9,15 +9,14 @@ import android.util.Log;
 
 /**
  * 使用 AudioRecord 采集音频数据并进行 FFT 分析
- * 注意：由于某些设备不支持系统 Visualizer API，这是一个备选方案
- * 采集的是麦克风输入，不是直接从播放的音频流获取
+ * 改进版本：支持更精确的频域分析和三段式频谱计算
  */
 public class AudioAnalyzer {
 
     private static final String TAG = "AudioAnalyzer";
     
-    // 音频配置
-    private static final int SAMPLE_RATE = 44100;
+    // 音频配置 - 提高采样率以获得更好的频率分辨率
+    private static final int SAMPLE_RATE = 48000;  // 提高到48kHz
     private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO;
     private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
     
@@ -27,9 +26,14 @@ public class AudioAnalyzer {
     private boolean isRecording = false;
     private OnAudioDataListener listener;
     
-    // FFT相关
-    private int fftSize = 256;
+    // FFT相关 - 增加FFT大小以获得更好的频率分辨率
+    private int fftSize = 1024;  // 从256增加到1024
     private float[] window;
+    
+    // 频段能量缓存
+    private float[] bassEnergy;
+    private float[] midEnergy;
+    private float[] trebleEnergy;
     
     /**
      * 音频数据监听器
@@ -39,11 +43,17 @@ public class AudioAnalyzer {
     }
     
     public AudioAnalyzer() {
-        // 初始化汉宁窗
+        // 初始化汉宁窗 - 改进的窗口函数
         window = new float[fftSize];
         for (int i = 0; i < fftSize; i++) {
+            // 使用汉宁窗减少频谱泄漏
             window[i] = (float) (0.5 * (1 - Math.cos(2 * Math.PI * i / (fftSize - 1))));
         }
+        
+        // 初始化频段能量数组
+        bassEnergy = new float[10];
+        midEnergy = new float[14];
+        trebleEnergy = new float[10];
     }
     
     /**
@@ -176,7 +186,7 @@ public class AudioAnalyzer {
     }
     
     /**
-     * 执行 FFT 变换
+     * 执行 FFT 变换 - 改进版本
      */
     private byte[] performFFT(short[] input) {
         int n = input.length;
@@ -186,25 +196,76 @@ public class AudioAnalyzer {
         float[] imag = new float[n];
         
         for (int i = 0; i < n; i++) {
+            // 归一化到 [-1, 1] 范围
             real[i] = input[i] / 32768.0f;
             imag[i] = 0;
         }
         
-        // Cooley-Tukey FFT 算法
+        // 执行 FFT
         fft(real, imag, n, false);
         
-        // 计算幅度并返回（直接返回幅度数组，不是交替格式）
-        int outputSize = Math.min(n / 2, 64); // 最多取64个频率分量
-        byte[] result = new byte[outputSize];
+        // 计算三段式频谱能量
+        calculateBandEnergies(real, imag, n);
+        
+        // 计算幅度谱 - 返回完整的频域数据
+        int outputSize = n / 2;  // 只返回正频率部分
+        byte[] result = new byte[outputSize * 2];  // 实部和虚部交替存储
         
         for (int i = 0; i < outputSize; i++) {
             // 计算幅度
             float magnitude = (float) Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
-            // 映射到字节范围（0-127）
-            result[i] = (byte) (magnitude * 127);
+            // 放大并映射到字节范围
+            float amplified = magnitude * 200f;  // 增强信号
+            result[i * 2] = (byte) Math.max(-128, Math.min(127, amplified * 127));  // 实部
+            result[i * 2 + 1] = (byte) Math.max(-128, Math.min(127, 0));  // 虚部设为0
         }
         
         return result;
+    }
+    
+    /**
+     * 计算三段式频谱能量
+     */
+    private void calculateBandEnergies(float[] real, float[] imag, int n) {
+        int nyquist = n / 2;
+        float sampleRate = SAMPLE_RATE;
+        float freqResolution = sampleRate / n;
+        
+        // 低音区: 20Hz - 250Hz
+        int bassStart = (int) (20 / freqResolution);
+        int bassEnd = (int) (250 / freqResolution);
+        bassEnd = Math.min(bassEnd, nyquist);
+        
+        // 中音区: 250Hz - 4000Hz
+        int midStart = bassEnd;
+        int midEnd = (int) (4000 / freqResolution);
+        midEnd = Math.min(midEnd, nyquist);
+        
+        // 高音区: 4000Hz - 20000Hz
+        int trebleStart = midEnd;
+        int trebleEnd = nyquist;
+        
+        // 计算各频段能量
+        for (int i = bassStart; i < bassEnd; i++) {
+            float magnitude = (float) Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
+            int bandIndex = (int) ((i - bassStart) * 10.0f / (bassEnd - bassStart));
+            bandIndex = Math.max(0, Math.min(bandIndex, 9));
+            bassEnergy[bandIndex] += magnitude;
+        }
+        
+        for (int i = midStart; i < midEnd; i++) {
+            float magnitude = (float) Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
+            int bandIndex = (int) ((i - midStart) * 14.0f / (midEnd - midStart));
+            bandIndex = Math.max(0, Math.min(bandIndex, 13));
+            midEnergy[bandIndex] += magnitude;
+        }
+        
+        for (int i = trebleStart; i < trebleEnd; i++) {
+            float magnitude = (float) Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
+            int bandIndex = (int) ((i - trebleStart) * 10.0f / (trebleEnd - trebleStart));
+            bandIndex = Math.max(0, Math.min(bandIndex, 9));
+            trebleEnergy[bandIndex] += magnitude;
+        }
     }
     
     /**

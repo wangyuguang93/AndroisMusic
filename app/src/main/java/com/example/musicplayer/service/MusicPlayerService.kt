@@ -208,6 +208,8 @@ class MusicPlayerService : android.app.Service() {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 super.onPlaybackStateChanged(playbackState)
                 notifyPlaybackStateChanged(exoPlayer.isPlaying)
+                // 更新悬浮窗频谱的播放状态
+                floatingWindowManager?.setPlaying(exoPlayer.isPlaying)
                 
                 if (playbackState == Player.STATE_READY) {
                     // 播放器准备好后初始化频谱可视化（使用系统Visualizer从播放音频获取数据）
@@ -721,22 +723,25 @@ class MusicPlayerService : android.app.Service() {
                             // FFT数据格式：偶数索引是实部，奇数索引是虚部
                             // 直接将原始FFT数据发送给所有监听器
                             fft?.let {
-                                // 添加日志：验证FFT数据长度和内容（只在有监听器时）
-                                if (spectrumListeners.isNotEmpty() && it.size >= 4) {
-                                    // 计算首个频率分量的幅度
-                                    val real0 = (it[2].toInt() and 0xFF) - 128
-                                    val imag0 = (it[3].toInt() and 0xFF) - 128
-                                    val mag0 = kotlin.math.sqrt((real0 * real0 + imag0 * imag0).toDouble())
+                                // 只在播放状态时发送频谱数据
+                                if (exoPlayer.isPlaying) {
+                                    // 添加日志：验证FFT数据长度和内容（只在有监听器时）
+                                    if (spectrumListeners.isNotEmpty() && it.size >= 4) {
+                                        // 计算首个频率分量的幅度
+                                        val real0 = (it[2].toInt() and 0xFF) - 128
+                                        val imag0 = (it[3].toInt() and 0xFF) - 128
+                                        val mag0 = kotlin.math.sqrt((real0 * real0 + imag0 * imag0).toDouble())
+                                        
+                                        Log.v(TAG, "Visualizer FFT: len=${it.size}, mag=$mag0, playing=${exoPlayer.isPlaying}")
+                                    }
                                     
-                                    Log.v(TAG, "Visualizer FFT: len=${it.size}, mag=$mag0, playing=${exoPlayer.isPlaying}")
+                                    // 发送给所有频谱监听器
+                                    spectrumListeners.forEach { listener ->
+                                        listener.onSpectrumData(it)
+                                    }
+                                    // 同时发送给悬浮窗管理器
+                                    floatingWindowManager?.updateSpectrum(it)
                                 }
-                                
-                                // 发送给所有频谱监听器
-                                spectrumListeners.forEach { listener ->
-                                    listener.onSpectrumData(it)
-                                }
-                                // 同时发送给悬浮窗管理器
-                                floatingWindowManager?.updateSpectrum(it)
                             }
                         }
                     },
